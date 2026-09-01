@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/core/commands.ts","./src/core/store.ts","./src/render/duckrenderer.ts","./src/sim/microducksim.ts","./src/sim/assetmanifest.ts","./src/sim/mujocoruntime.ts","./src/webmcp/registertools.ts","./src/webmcp/webmcp.d.ts"],"version":"5.9.3"}
