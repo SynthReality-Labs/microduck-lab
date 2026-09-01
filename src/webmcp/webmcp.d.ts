@@ -7,6 +7,8 @@
  */
 export interface WebMcpToolDefinition<Args = Record<string, unknown>> {
   name: string
+  /** Chrome's RegisteredTool exposes a `title`; supply a human-readable one. */
+  title?: string
   description: string
   inputSchema: Record<string, unknown>
   /** Named `execute` in the challenge rules. */

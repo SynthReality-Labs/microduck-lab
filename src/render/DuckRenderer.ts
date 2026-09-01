@@ -17,6 +17,11 @@ export class DuckRenderer {
   private readonly mat = new THREE.Matrix4()
   private raf = 0
 
+  private readonly raycaster = new THREE.Raycaster()
+  private readonly pointer = new THREE.Vector2()
+  private highlighted = new Set<number>()
+  private onPick: ((geomId: number) => void) | null = null
+
   /** Smoothed point the camera orbits, so a walking duck stays in frame. */
   private readonly focus = new THREE.Vector3(0, 0, 0.1)
   private readonly offset = new THREE.Vector3(0.55, -0.55, 0.22)
@@ -47,6 +52,7 @@ export class DuckRenderer {
     this.scene.add(grid)
 
     this.buildDuck()
+    canvas.addEventListener('pointerdown', this.handlePointerDown)
     // Follow the trunk rather than the world origin. Uses a geom on the trunk
     // body so we can read the position straight out of the same live view the
     // meshes already use.
@@ -76,6 +82,42 @@ export class DuckRenderer {
     }
   }
 
+  /** Register a callback for clicks on the duck. */
+  setPickHandler(fn: ((geomId: number) => void) | null): void {
+    this.onPick = fn
+  }
+
+  private handlePointerDown = (e: PointerEvent): void => {
+    if (!this.onPick) return
+    const rect = this.canvas.getBoundingClientRect()
+    this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+    this.raycaster.setFromCamera(this.pointer, this.camera)
+
+    // Meshes carry a static identity matrix and are positioned via .matrix, so
+    // Three.js needs their world matrices refreshed before intersection.
+    const hits = this.raycaster.intersectObjects(this.meshes.map((m) => m.mesh), false)
+    if (!hits.length) {
+      this.onPick(-1)
+      return
+    }
+    const hit = this.meshes.find((m) => m.mesh === hits[0].object)
+    this.onPick(hit ? hit.geomId : -1)
+  }
+
+  /** Emissive-highlight a set of geoms; pass an empty set to clear. */
+  setHighlight(geomIds: Iterable<number>): void {
+    const next = new Set(geomIds)
+    for (const { geomId, mesh } of this.meshes) {
+      const on = next.has(geomId)
+      if (on === this.highlighted.has(geomId)) continue
+      const mat = mesh.material as THREE.MeshStandardMaterial
+      mat.emissive.setHex(on ? 0xffcc4d : 0x000000)
+      mat.emissiveIntensity = on ? 0.55 : 0
+    }
+    this.highlighted = next
+  }
+
   /** Pull the live geom transforms out of MjData and push them onto the meshes. */
   syncTransforms(): void {
     const xpos = this.sim.data.geom_xpos
@@ -90,6 +132,7 @@ export class DuckRenderer {
         0, 0, 0, 1,
       )
       mesh.matrix.copy(this.mat)
+      mesh.matrixWorld.copy(this.mat)
     }
   }
 
@@ -149,6 +192,7 @@ export class DuckRenderer {
 
   dispose(): void {
     this.stop()
+    this.canvas.removeEventListener('pointerdown', this.handlePointerDown)
     for (const { mesh } of this.meshes) {
       mesh.geometry.dispose()
       ;(mesh.material as THREE.Material).dispose()

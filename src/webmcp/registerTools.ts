@@ -12,56 +12,228 @@ import * as core from '../core/commands'
 
 type Tool = WebMcpToolDefinition<Record<string, never>>
 
+const obj = (properties: Record<string, unknown> = {}, required: string[] = []) => ({
+  type: 'object',
+  properties,
+  ...(required.length ? { required } : {}),
+  additionalProperties: false,
+})
+const NO_ARGS = obj()
+
 const tools: Tool[] = [
+  // ── Knowledge ──────────────────────────────────────────────────────────────
+  {
+    name: 'get_microduck_spec',
+    title: 'Microduck specification',
+    description:
+      'Facts about the Microduck robot itself: size, mass, motors, sensors, who made it, and how ' +
+      'the simulation model relates to the physical robot. Call this before answering any question ' +
+      'about what the robot is or what it can do.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getMicroduckSpec(),
+  },
+  {
+    name: 'get_policy_contract',
+    title: 'Policy input/output contract',
+    description:
+      'The exact interface every Microduck policy implements: the 61-dimensional observation layout ' +
+      'slice by slice, the 13-value command block, the 14 joints in action order, the home pose, how ' +
+      'an action becomes a joint target, and the velocity ranges the policies were trained on. ' +
+      'Essential before reasoning about observations, actions or commands.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getPolicyContract(),
+  },
+  {
+    name: 'get_rl_playbook',
+    title: 'Microduck RL playbook',
+    description:
+      "Pollen Robotics' own hard-won reinforcement-learning lessons for this robot — the reward-design " +
+      'rules, curriculum pacing, sim2real footguns and training diagnostics they learned by actually ' +
+      'training it. Prefer this over generic RL knowledge when advising on this robot.',
+    inputSchema: obj(
+      {
+        topic: {
+          type: 'string',
+          enum: ['reward-design', 'commands-observations', 'curricula', 'training-ops', 'sim2real', 'invariants', 'building-an-env'],
+          description: 'Which section of the playbook to return.',
+        },
+      },
+      ['topic'],
+    ),
+    execute: (a: { topic: string }) => core.getRlPlaybook(a?.topic),
+  },
+  {
+    name: 'explain_reward_term',
+    title: 'Explain a reward term',
+    description:
+      'What a specific reward term does on this robot and the failure mode it exists to prevent, plus ' +
+      "the sign convention whose violation causes butt-hopping and crash-sits. Use when the user asks " +
+      'what a reward term means or why a policy is behaving badly.',
+    inputSchema: obj({ term: { type: 'string', description: 'Reward term name, e.g. action_rate_l2.' } }, ['term']),
+    execute: (a: { term: string }) => core.explainRewardTerm(a?.term),
+  },
+
+  // ── State ──────────────────────────────────────────────────────────────────
   {
     name: 'get_studio_state',
+    title: 'Studio state',
     description:
-      'Get what MicroDuck Lab is currently doing: load status, whether the simulation is paused, ' +
-      'the current simulation time, and how many WebMCP tools are registered. ' +
-      'Call this first when you need orientation before acting.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      'What MicroDuck Lab is currently doing: load status, whether physics is paused, simulation time, ' +
+      'and how many WebMCP tools are registered. Call this first when you need orientation before acting.',
+    inputSchema: NO_ARGS,
     execute: () => core.getStudioState(),
   },
   {
     name: 'describe_robot',
+    title: 'Describe the robot',
     description:
-      "Get the Microduck's kinematic and actuation layout: the 14 actuator names in action order, " +
-      'all joint names, state dimensions (nq/nv/nu) and the physics timestep. ' +
-      'Use this to ground any question about joints, actuators or the action space.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      'The loaded simulation model: the 14 actuator names in action order, all joint names, state ' +
+      'dimensions and the physics timestep.',
+    inputSchema: NO_ARGS,
     execute: () => core.describeRobot(),
   },
   {
-    name: 'reset_sim',
+    name: 'list_joints',
+    title: 'List joints with live state',
     description:
-      'Reset the robot to one of the poses defined in the scene. Use STAND before running a ' +
-      'locomotion policy; INIT drops the robot from its spawn height.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        pose: {
+      'Every hinge joint with its current angle, velocity, travel limits, axis, owning body, and how far ' +
+      'it currently sits from the home pose. Use to find which joint is doing something unusual.',
+    inputSchema: NO_ARGS,
+    execute: () => core.listJoints(),
+  },
+  {
+    name: 'list_policies',
+    title: 'List available policies',
+    description:
+      'The nine Apache-2.0 policies published by Pollen Robotics, and which one is currently loaded.',
+    inputSchema: NO_ARGS,
+    execute: () => core.listPolicies(),
+  },
+  {
+    name: 'get_command',
+    title: 'Get the current command',
+    description: 'The velocity, head and body command currently being fed to the policy.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getCommand(),
+  },
+
+  // ── Selection: the human's pointing gesture, readable ───────────────────────
+  {
+    name: 'get_selected_joint',
+    title: 'What the user has selected',
+    description:
+      'The joint the user has clicked in the 3D view, with its live angle, velocity, limits and offset ' +
+      'from the home pose. Call this whenever the user says "this joint", "here", "that part" or "what ' +
+      'am I looking at" — it resolves what they are pointing at without asking them to describe it.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getSelectedJoint(),
+  },
+  {
+    name: 'get_selected_robot',
+    title: 'Which robot is selected',
+    description: 'Which robot the user currently has selected. Useful once more than one duck is in the scene.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getSelectedRobot(),
+  },
+  {
+    name: 'select_joint',
+    title: 'Select a joint',
+    description:
+      'Select a joint by name, which also highlights it. Use to direct the user to the joint you are ' +
+      'talking about, so your explanation lands on the robot rather than in the chat.',
+    inputSchema: obj({ name: { type: 'string', description: 'Joint name, e.g. left_hip_roll.' } }, ['name']),
+    execute: (a: { name: string }) => core.selectJoint({ name: a?.name }),
+  },
+
+  // ── Attention: the agent's pointing finger ─────────────────────────────────
+  {
+    name: 'highlight_joint',
+    title: 'Highlight a joint',
+    description:
+      'Light up a joint and everything below it in the kinematic chain, in the 3D view the user is ' +
+      'already looking at. Use when naming a joint in an explanation.',
+    inputSchema: obj({ name: { type: 'string', description: 'Joint name to highlight.' } }, ['name']),
+    execute: (a: { name: string }) => core.highlightJoint(a?.name),
+  },
+  {
+    name: 'clear_highlight',
+    title: 'Clear highlighting',
+    description: 'Remove any highlight from the 3D view.',
+    inputSchema: NO_ARGS,
+    execute: () => core.clearHighlight(),
+  },
+
+  // ── Mutation ───────────────────────────────────────────────────────────────
+  {
+    name: 'load_policy',
+    title: 'Load a policy',
+    description:
+      'Load one of the published policies and start driving the robot with it. alpha_walking is the ' +
+      'locomotion policy; below roughly 0.15 m/s of commanded velocity it stands in place by design.',
+    inputSchema: obj(
+      {
+        id: {
           type: 'string',
-          enum: ['INIT', 'STAND', 'SIT', 'FOLD'],
-          description: 'Which keyframe pose to reset to. Defaults to STAND.',
+          enum: ['alpha_walking', 'alpha_stand', 'alpha_sitstand', 'alpha_ground_pick', 'ball_kick_left', 'ball_kick_right', 'roller', 'roller_crouch', 'roulade'],
+          description: 'Policy id to load.',
         },
       },
-      additionalProperties: false,
-    },
-    execute: (args: { pose?: 'INIT' | 'STAND' | 'SIT' | 'FOLD' }) =>
-      core.resetSim(args?.pose ?? 'STAND'),
+      ['id'],
+    ),
+    execute: (a: { id: string }) => core.loadPolicy(a?.id),
+  },
+  {
+    name: 'unload_policy',
+    title: 'Unload the policy',
+    description: 'Stop running any policy and hold the home pose. The robot will fall — it cannot balance passively.',
+    inputSchema: NO_ARGS,
+    execute: () => core.unloadPolicy(),
+  },
+  {
+    name: 'set_command',
+    title: 'Set the velocity command',
+    description:
+      'Set what the robot is being asked to do. Trained ranges are forward -0.4..0.4 m/s, lateral ' +
+      '-0.3..0.3 m/s, yaw -1..1 rad/s; commanding outside those is out of distribution and the policy ' +
+      'may behave unpredictably.',
+    inputSchema: obj({
+      vx: { type: 'number', minimum: -0.4, maximum: 0.4, description: 'Forward velocity, m/s.' },
+      vy: { type: 'number', minimum: -0.3, maximum: 0.3, description: 'Lateral velocity, m/s.' },
+      vyaw: { type: 'number', minimum: -1, maximum: 1, description: 'Yaw rate, rad/s.' },
+    }),
+    execute: (a: { vx?: number; vy?: number; vyaw?: number }) => core.setCommand(a ?? {}),
+  },
+  {
+    name: 'reset_sim',
+    title: 'Reset the robot pose',
+    description:
+      'Reset the robot to one of the scene keyframes. STAND is the home pose every policy was trained ' +
+      'against; INIT drops it from spawn height.',
+    inputSchema: obj({
+      pose: { type: 'string', enum: ['INIT', 'STAND', 'SIT', 'FOLD'], description: 'Keyframe to reset to. Defaults to STAND.' },
+    }),
+    execute: (a: { pose?: 'INIT' | 'STAND' | 'SIT' | 'FOLD' }) => core.resetSim(a?.pose ?? 'STAND'),
+  },
+  {
+    name: 'apply_disturbance',
+    title: 'Push the robot',
+    description:
+      'Shove the robot to test whether the current policy can recover. Applied as an instantaneous ' +
+      'velocity change so the same request always means the same push.',
+    inputSchema: obj({
+      magnitude: { type: 'number', minimum: 0, maximum: 3, description: 'Push strength in m/s of instantaneous velocity. 0.4 is gentle, 1.5 is hard.' },
+      direction: { type: 'string', enum: ['front', 'back', 'left', 'right'], description: 'Which way to push. Defaults to front.' },
+    }),
+    execute: (a: { magnitude?: number; direction?: 'front' | 'back' | 'left' | 'right' }) => core.applyDisturbance(a ?? {}),
   },
   {
     name: 'set_paused',
+    title: 'Pause or resume physics',
     description:
-      'Pause or resume the physics simulation. Pause before inspecting a specific moment so the ' +
-      'state stops changing underneath you.',
-    inputSchema: {
-      type: 'object',
-      properties: { paused: { type: 'boolean', description: 'true to pause, false to resume.' } },
-      required: ['paused'],
-      additionalProperties: false,
-    },
-    execute: (args: { paused: boolean }) => core.setPaused(Boolean(args?.paused)),
+      'Pause or resume the simulation. Pause before inspecting a specific moment so the state stops ' +
+      'changing underneath you.',
+    inputSchema: obj({ paused: { type: 'boolean', description: 'true to pause, false to resume.' } }, ['paused']),
+    execute: (a: { paused: boolean }) => core.setPaused(Boolean(a?.paused)),
   },
 ] as unknown as Tool[]
 

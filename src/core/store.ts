@@ -18,6 +18,9 @@ interface StudioState {
   simTime: number
   loadedPolicy: string | null
   commandVersion: number
+  /** What the human currently has selected. This is agent-readable state. */
+  selection: { jointId: number; jointName: string; bodyName: string } | null
+  highlight: string[]
   webmcp: { available: boolean; surface: 'document' | 'navigator' | 'none'; registered: string[] }
   toolLog: ToolCallLogEntry[]
 
@@ -38,6 +41,8 @@ export const useStudio = create<StudioState>((set) => ({
   simTime: 0,
   loadedPolicy: null,
   commandVersion: 0,
+  selection: null,
+  highlight: [],
   webmcp: { available: false, surface: 'none', registered: [] },
   toolLog: [],
 

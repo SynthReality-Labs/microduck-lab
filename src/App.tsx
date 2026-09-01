@@ -6,8 +6,10 @@ import { POLICIES } from './sim/policyContract'
 import { DuckRenderer } from './render/DuckRenderer'
 import { useStudio } from './core/store'
 import {
-  attachPolicyRunner, attachSim, loadPolicy, resetSim, setCommand, setPaused, unloadPolicy,
+  attachIntrospector, attachPolicyRunner, attachRenderer, attachSim, clearSelection,
+  loadPolicy, resetSim, selectJoint, setCommand, setPaused, unloadPolicy,
 } from './core/commands'
+import { Introspector } from './sim/introspect'
 import { probeAgentSurfaces, registerWebMcpTools, tryRegisterWebMcpTools } from './webmcp/registerTools'
 
 export default function App() {
@@ -21,6 +23,7 @@ export default function App() {
   const paused = useStudio((s) => s.paused)
   const [simTime, setSimTime] = useState(0)
   const loadedPolicy = useStudio((s) => s.loadedPolicy)
+  const selection = useStudio((s) => s.selection)
   const [cmd, setCmd] = useState({ vx: 0, vy: 0, vyaw: 0 })
   const [policyError, setPolicyError] = useState<string | null>(null)
 
@@ -85,7 +88,16 @@ export default function App() {
           ;(globalThis as Record<string, unknown>).__duck = { sim, runner }
         }
 
+        attachIntrospector(new Introspector(sim))
+
         renderer = new DuckRenderer(canvas, sim)
+        attachRenderer(renderer)
+        // Clicking the duck goes through the same command the agent calls, so
+        // "what the human selected" and "what the agent selected" are one thing.
+        renderer.setPickHandler((geomId) => {
+          if (geomId < 0) clearSelection()
+          else selectJoint({ geomId })
+        })
         renderer.start({
           // tick() is async; its own busy guard drops overlapping ticks rather
           // than queueing them, so the duck never acts on a stale observation.
@@ -113,6 +125,8 @@ export default function App() {
       removeEventListener('resize', onResize)
       renderer?.dispose()
       renderer = null
+      attachRenderer(null)
+      attachIntrospector(null)
       attachPolicyRunner(null)
       attachSim(null)
       sim?.dispose()
@@ -212,6 +226,22 @@ export default function App() {
             alpha_walking is a <em>velstand</em> policy: below roughly 0.15&nbsp;m/s it stands
             in place rather than stepping.
           </p>
+        </section>
+
+        <section>
+          <h2>Selection</h2>
+          {selection ? (
+            <>
+              <div className="row"><span>Joint</span><span>{selection.jointName}</span></div>
+              <div className="row"><span>Body</span><span>{selection.bodyName}</span></div>
+              <button onClick={() => clearSelection()}>Clear</button>
+            </>
+          ) : (
+            <p className="hint" style={{ margin: 0 }}>
+              Click a part of the duck. Your selection becomes agent-readable state — ask
+              “what am I looking at?” and the agent resolves it without you describing anything.
+            </p>
+          )}
         </section>
 
         <section>
