@@ -7,10 +7,12 @@ import { DuckRenderer } from './render/DuckRenderer'
 import { useStudio } from './core/store'
 import {
   attachIntrospector, attachPolicyRunner, attachRenderer, attachSim, clearSelection,
-  getCommand, loadPolicy, resetSim, selectJoint, setCommand, setPaused, unloadPolicy,
+  getCommand, loadPolicy, renderReviewFrame, resetSim, selectJoint, setCommand, setPaused,
+  unloadPolicy,
 } from './core/commands'
 import { Introspector } from './sim/introspect'
 import { LearnPanel } from './ui/LearnPanel'
+import { Timeline } from './ui/Timeline'
 import { probeAgentSurfaces, registerWebMcpTools, tryRegisterWebMcpTools } from './webmcp/registerTools'
 
 export default function App() {
@@ -108,7 +110,14 @@ export default function App() {
         renderer.start({
           // tick() is async; its own busy guard drops overlapping ticks rather
           // than queueing them, so the duck never acts on a stale observation.
-          beforePhysics: (dt) => void runner.tick(dt),
+          beforePhysics: (dt) => {
+            // Reviewing a recording and driving the live robot are mutually
+            // exclusive: in review the playhead writes qpos directly, so the
+            // policy must not also be issuing commands into the same state.
+            const st = useStudio.getState()
+            if (st.review) renderReviewFrame()
+            else if (!st.paused) void runner.tick(dt)
+          },
           onFrame: () => setSimTime(sim!.data.time),
         })
 
@@ -169,6 +178,7 @@ export default function App() {
             )}
           </div>
         )}
+        <Timeline />
         <LearnPanel />
       </div>
 

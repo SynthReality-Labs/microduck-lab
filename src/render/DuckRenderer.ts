@@ -173,11 +173,11 @@ export class DuckRenderer {
     const loop = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.1)
       last = now
-      if (!useStudio.getState().paused) {
-        // Controller first, then physics: ctrl must be set for the steps it governs.
-        opts.beforePhysics?.(dt)
-        this.sim.advance(dt)
-      }
+      // beforePhysics runs even when paused: replaying a recorded rollout writes
+      // qpos every frame while physics is deliberately stopped, so gating it on
+      // !paused would freeze the replay instead of the simulation.
+      opts.beforePhysics?.(dt)
+      if (!useStudio.getState().paused) this.sim.advance(dt)
       this.syncTransforms()
       this.render()
       opts.onFrame?.()

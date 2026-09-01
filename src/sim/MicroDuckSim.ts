@@ -103,6 +103,19 @@ export class MicroDuckSim {
     return steps
   }
 
+  /**
+   * Show a recorded configuration without simulating it.
+   *
+   * mj_forward recomputes every derived quantity — body transforms, contacts,
+   * sensors — from qpos alone, so a replayed frame is rendered from the same
+   * pipeline as a live one rather than a separate playback path.
+   */
+  applyQpos(source: Float32Array, offset: number): void {
+    const qpos = this.data.qpos
+    for (let i = 0; i < this.model.nq; i++) qpos[i] = source[offset + i]
+    this.mj.mj_forward(this.model, this.data)
+  }
+
   setCtrl(values: ArrayLike<number>): void {
     const ctrl = this.data.ctrl
     const n = Math.min(ctrl.length, values.length)

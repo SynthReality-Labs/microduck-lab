@@ -36,7 +36,7 @@ export async function recordEpisode(
   runner.command.twist[2] = spec.command.vyaw
 
   const steps = Math.round(spec.seconds / CONTROL_DT)
-  const ep = makeEpisode(spec.id, spec.label, spec.policy, spec.note, steps, CONTROL_DT)
+  const ep = makeEpisode(spec.id, spec.label, spec.policy, spec.note, steps, CONTROL_DT, sim.model.nq)
 
   const decimation = sim.controlDecimation
   const trunk = sim.mj.mj_name2id(sim.model, sim.mj.mjtObj.mjOBJ_BODY.value, 'trunk_base')
@@ -64,6 +64,7 @@ export async function recordEpisode(
     }
 
     ep.push({
+      qpos,
       posX: qpos[0], posY: qpos[1], posZ: qpos[2],
       gravZ,
       velX: qvel[0], velY: qvel[1],

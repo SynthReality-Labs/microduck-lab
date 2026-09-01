@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useStudio } from '../core/store'
 import {
-  checkRewardSigns, getObjective, listRollouts, recordLibrary, resetObjective,
+  checkRewardSigns, getObjective, listRollouts, openRollout, recordLibrary, resetObjective,
   scoreRollouts, setRewardWeight,
 } from '../core/commands'
 
@@ -89,7 +89,12 @@ export function LearnPanel() {
         <div className="learn-body">
           <ol className="ranking">
             {ranking.map((r) => (
-              <li key={r.id} title={notes.get(r.id)}>
+              <li
+                key={r.id}
+                title={`${notes.get(r.id) ?? ''}\n\nClick to replay this rollout.`}
+                onClick={() => openRollout(r.id)}
+                className="clickable"
+              >
                 <span className="rk">#{r.rank}</span>
                 <span className="nm">{r.label}</span>
                 <span className="br">

@@ -652,3 +652,193 @@ export function checkRewardSigns(): Result<{
     rule: SIGN_CONVENTION_RULE,
   }
 }
+
+// ── Rollout review: the timeline, and the range the human dragged ────────────
+
+function currentReview() {
+  return useStudio.getState().review
+}
+
+/** Open a recorded rollout for review. Pauses physics — you are inspecting a
+ *  recording, not steering the live robot. */
+export function openRollout(id: string): Result<{ rollout: string; frames: number; seconds: number }> {
+  const ep = rollouts.get(id)
+  if (!ep) {
+    return {
+      ok: false,
+      reason: `No rollout "${id}".`,
+      suggestion: `Recorded rollouts: ${[...rollouts.keys()].join(', ') || '(none — call record_rollout_library)'}`,
+    }
+  }
+  useStudio.getState().set({
+    review: { episodeId: id, frame: 0, playing: true, range: null },
+    paused: true,
+  })
+  return { ok: true, rollout: id, frames: ep.length, seconds: +(ep.length * ep.dt).toFixed(2) }
+}
+
+export function closeRollout(): Result<{ closed: true }> {
+  useStudio.getState().set({ review: null, paused: false })
+  const s = requireSim()
+  if (!isErr(s)) s.reset('STAND')
+  return { ok: true, closed: true }
+}
+
+export function seekRollout(seconds: number): Result<{ time: number; frame: number }> {
+  const r = currentReview()
+  if (!r) return { ok: false, reason: 'No rollout is open.', suggestion: 'Call open_rollout first.' }
+  const ep = rollouts.get(r.episodeId)!
+  const frame = Math.max(0, Math.min(ep.length - 1, Math.round(seconds / ep.dt)))
+  useStudio.getState().set({ review: { ...r, frame, playing: false } })
+  return { ok: true, time: +(frame * ep.dt).toFixed(3), frame }
+}
+
+export function setReviewPlaying(playing: boolean): Result<{ playing: boolean }> {
+  const r = currentReview()
+  if (!r) return { ok: false, reason: 'No rollout is open.' }
+  useStudio.getState().set({ review: { ...r, playing } })
+  return { ok: true, playing }
+}
+
+export function setTimelineRange(startSec: number, endSec: number): Result<{ start: number; end: number }> {
+  const r = currentReview()
+  if (!r) return { ok: false, reason: 'No rollout is open.', suggestion: 'Call open_rollout first.' }
+  const ep = rollouts.get(r.episodeId)!
+  const a = Math.max(0, Math.min(ep.length - 1, Math.round(Math.min(startSec, endSec) / ep.dt)))
+  const b = Math.max(0, Math.min(ep.length - 1, Math.round(Math.max(startSec, endSec) / ep.dt)))
+  useStudio.getState().set({ review: { ...r, range: { startFrame: a, endFrame: b } } })
+  return { ok: true, start: +(a * ep.dt).toFixed(3), end: +(b * ep.dt).toFixed(3) }
+}
+
+export function clearTimelineRange(): Result<{ cleared: true }> {
+  const r = currentReview()
+  if (r) useStudio.getState().set({ review: { ...r, range: null } })
+  return { ok: true, cleared: true }
+}
+
+/**
+ * The time range the human dragged on the timeline.
+ *
+ * The companion to get_selected_joint: together they let "what went wrong
+ * here?" resolve without the user describing when or where "here" is.
+ */
+export function getSelectedTimelineRange(): Result<{ selection: unknown }> {
+  const r = currentReview()
+  if (!r) {
+    return {
+      ok: true,
+      selection: null,
+      ...({ note: 'No rollout is open. Call open_rollout, then the user can drag a range on the timeline.' } as object),
+    }
+  }
+  const ep = rollouts.get(r.episodeId)!
+  if (!r.range) {
+    return {
+      ok: true,
+      selection: null,
+      ...({
+        note: `Rollout "${ep.id}" is open at t=${(r.frame * ep.dt).toFixed(2)}s but no range is selected. The user can drag one on the timeline.`,
+      } as object),
+    }
+  }
+  return {
+    ok: true,
+    selection: {
+      rollout: ep.id,
+      label: ep.label,
+      start: +(r.range.startFrame * ep.dt).toFixed(3),
+      end: +(r.range.endFrame * ep.dt).toFixed(3),
+      frames: r.range.endFrame - r.range.startFrame + 1,
+    },
+  }
+}
+
+/**
+ * Analyse a window of a rollout.
+ *
+ * Defaults to whatever the human currently has selected, so an agent answering
+ * "what went wrong here?" needs no arguments at all.
+ */
+export function inspectRollout(args: { start?: number; end?: number; id?: string }): Result<{ window: unknown; findings: unknown }> {
+  const r = currentReview()
+  const ep = rollouts.get(args.id ?? r?.episodeId ?? '')
+  if (!ep) {
+    return {
+      ok: false,
+      reason: 'No rollout to inspect.',
+      suggestion: 'Call open_rollout first, or pass an id.',
+    }
+  }
+  let a = 0
+  let b = ep.length - 1
+  if (args.start !== undefined || args.end !== undefined) {
+    a = Math.max(0, Math.round((args.start ?? 0) / ep.dt))
+    b = Math.min(ep.length - 1, Math.round((args.end ?? ep.length * ep.dt) / ep.dt))
+  } else if (r?.range) {
+    a = r.range.startFrame
+    b = r.range.endFrame
+  }
+  if (b < a) [a, b] = [b, a]
+
+  let minUpright = 1
+  let maxAngVel = 0
+  let minHeight = Infinity
+  let maxHeight = -Infinity
+  let sumSpeed = 0
+  let peakActionDelta = 0
+  let peakFrame = a
+  for (let i = a; i <= b; i++) {
+    minUpright = Math.min(minUpright, -ep.gravZ[i])
+    if (ep.angVelMag[i] > maxAngVel) maxAngVel = ep.angVelMag[i]
+    minHeight = Math.min(minHeight, ep.posZ[i])
+    maxHeight = Math.max(maxHeight, ep.posZ[i])
+    sumSpeed += ep.velX[i]
+    if (ep.actionDelta[i] > peakActionDelta) {
+      peakActionDelta = ep.actionDelta[i]
+      peakFrame = i
+    }
+  }
+  const n = b - a + 1
+
+  const findings: string[] = []
+  if (minUpright < 0.4) findings.push('Lost upright orientation in this window — the trunk went past horizontal.')
+  if (minHeight < 0.08) findings.push(`Trunk dropped to ${minHeight.toFixed(3)} m, well below the nominal 0.12 m stance.`)
+  if (maxAngVel > 3) findings.push(`Large angular velocity peak (${maxAngVel.toFixed(2)} rad/s) — the trunk is being thrown, not steered.`)
+  if (peakActionDelta > 0.5) findings.push(`Action-rate spike at t=${(peakFrame * ep.dt).toFixed(2)}s — the policy is correcting hard.`)
+  if (findings.length === 0) findings.push('Nothing anomalous in this window: upright, stable height, smooth actions.')
+
+  return {
+    ok: true,
+    window: {
+      rollout: ep.id,
+      start: +(a * ep.dt).toFixed(3),
+      end: +(b * ep.dt).toFixed(3),
+      frames: n,
+    },
+    findings: {
+      summary: findings,
+      minUpright: +minUpright.toFixed(3),
+      minHeight: +minHeight.toFixed(3),
+      maxHeight: +maxHeight.toFixed(3),
+      meanForwardSpeed: +(sumSpeed / n).toFixed(3),
+      maxAngularVelocity: +maxAngVel.toFixed(3),
+      peakActionRateAt: +(peakFrame * ep.dt).toFixed(3),
+      terminationReason: ep.terminationReason,
+    },
+  }
+}
+
+/** Write the frame the playhead is on into the live sim, for rendering. */
+export function renderReviewFrame(): void {
+  const r = currentReview()
+  if (!r) return
+  const ep = rollouts.get(r.episodeId)
+  const s = sim
+  if (!ep || !s) return
+  s.applyQpos(ep.qpos, r.frame * ep.nq)
+  if (r.playing) {
+    const next = r.frame + 1
+    if (next >= ep.length) useStudio.getState().set({ review: { ...r, frame: 0 } })
+    else useStudio.getState().set({ review: { ...r, frame: next } })
+  }
+}

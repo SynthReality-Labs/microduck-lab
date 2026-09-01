@@ -292,6 +292,70 @@ const tools: Tool[] = [
     inputSchema: NO_ARGS,
     execute: () => core.scoreRollouts(),
   },
+  // ── Rollout review: the timeline the human drags on ────────────────────────
+  {
+    name: 'open_rollout',
+    title: 'Open a rollout for review',
+    description:
+      'Load a recorded rollout into the viewer and start replaying it. Pauses the live robot — you ' +
+      'are inspecting a recording. Do this before seeking, selecting a range, or inspecting a window.',
+    inputSchema: obj({ id: { type: 'string', description: 'Rollout id, e.g. clean-walk or roulade.' } }, ['id']),
+    execute: (a: { id: string }) => core.openRollout(a?.id),
+  },
+  {
+    name: 'close_rollout',
+    title: 'Close rollout review',
+    description: 'Leave review and return to the live robot.',
+    inputSchema: NO_ARGS,
+    execute: () => core.closeRollout(),
+  },
+  {
+    name: 'seek_rollout',
+    title: 'Seek the playhead',
+    description:
+      'Move the replay playhead to a moment in the open rollout, and pause there. Use to put the ' +
+      'user on the exact frame you are describing.',
+    inputSchema: obj({ seconds: { type: 'number', minimum: 0, description: 'Time within the rollout.' } }, ['seconds']),
+    execute: (a: { seconds: number }) => core.seekRollout(a?.seconds),
+  },
+  {
+    name: 'set_timeline_range',
+    title: 'Select a time range',
+    description:
+      'Highlight a window on the timeline, so the user can see which part of the rollout you are ' +
+      'talking about.',
+    inputSchema: obj(
+      { start: { type: 'number', minimum: 0, description: 'Start time, seconds.' },
+        end: { type: 'number', minimum: 0, description: 'End time, seconds.' } },
+      ['start', 'end'],
+    ),
+    execute: (a: { start: number; end: number }) => core.setTimelineRange(a?.start, a?.end),
+  },
+  {
+    name: 'get_selected_timeline_range',
+    title: 'What time range the user selected',
+    description:
+      'The window the user dragged on the rollout timeline. Call this whenever they say "here", ' +
+      '"this bit", "that fall" or "what went wrong" — it resolves WHEN they mean without asking. ' +
+      'Pairs with get_selected_joint, which resolves WHERE.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getSelectedTimelineRange(),
+  },
+  {
+    name: 'inspect_rollout',
+    title: 'Analyse a window of a rollout',
+    description:
+      'Diagnose a slice of a rollout: uprightness, trunk height, angular-velocity peaks, action-rate ' +
+      'spikes and the termination cause, with a plain-language summary. Called with no arguments it ' +
+      'analyses whatever the user currently has selected, which is the usual way to answer ' +
+      '"what went wrong here?".',
+    inputSchema: obj({
+      start: { type: 'number', minimum: 0, description: 'Optional start time; defaults to the user selection.' },
+      end: { type: 'number', minimum: 0, description: 'Optional end time.' },
+      id: { type: 'string', description: 'Optional rollout id; defaults to the open one.' },
+    }),
+    execute: (a: { start?: number; end?: number; id?: string }) => core.inspectRollout(a ?? {}),
+  },
   {
     name: 'check_reward_signs',
     title: 'Audit reward signs',

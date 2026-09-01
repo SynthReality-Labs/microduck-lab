@@ -22,6 +22,13 @@ interface StudioState {
   selection: { jointId: number; jointName: string; bodyName: string } | null
   highlight: string[]
   rolloutIds: string[]
+  /** Rollout review: which episode is open, where the playhead is, what is selected. */
+  review: {
+    episodeId: string
+    frame: number
+    playing: boolean
+    range: { startFrame: number; endFrame: number } | null
+  } | null
   recording: { active: boolean; label: string } | null
   objectiveVersion: number
   webmcp: { available: boolean; surface: 'document' | 'navigator' | 'none'; registered: string[] }
@@ -47,6 +54,7 @@ export const useStudio = create<StudioState>((set) => ({
   selection: null,
   highlight: [],
   rolloutIds: [],
+  review: null,
   recording: null,
   objectiveVersion: 0,
   webmcp: { available: false, surface: 'none', registered: [] },
