@@ -31,6 +31,8 @@ interface StudioState {
   } | null
   recording: { active: boolean; label: string } | null
   objectiveVersion: number
+  evaluating: { done: number; total: number; label: string } | null
+  evalPolicies: string[]
   webmcp: { available: boolean; surface: 'document' | 'navigator' | 'none'; registered: string[] }
   toolLog: ToolCallLogEntry[]
 
@@ -57,6 +59,8 @@ export const useStudio = create<StudioState>((set) => ({
   review: null,
   recording: null,
   objectiveVersion: 0,
+  evaluating: null,
+  evalPolicies: [],
   webmcp: { available: false, surface: 'none', registered: [] },
   toolLog: [],
 

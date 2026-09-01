@@ -130,3 +130,11 @@ select { width: 100%; background: #1e2731; color: var(--text); border: 1px solid
 .obs-slices button em { font-style: normal; color: var(--dim); margin-left: 3px; }
 .obs-vals { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px;
   color: var(--accent); margin: 6px 0 0; word-break: break-all; }
+
+table.eval { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
+table.eval td { padding: 2px 0; }
+table.eval td.n { text-align: right; font-variant-numeric: tabular-nums; padding-right: 8px; }
+table.eval td.dim { color: var(--dim); font-size: 10px; }
+table.eval tr.pass td:nth-child(2) { color: var(--ok); }
+table.eval tr.fail td:nth-child(2) { color: var(--bad); }
+table.eval tr.partial td:nth-child(2) { color: var(--accent); }

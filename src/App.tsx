@@ -13,6 +13,7 @@ import {
 import { Introspector } from './sim/introspect'
 import { LearnPanel } from './ui/LearnPanel'
 import { Timeline } from './ui/Timeline'
+import { EvalPanel } from './ui/EvalPanel'
 import { probeAgentSurfaces, registerWebMcpTools, tryRegisterWebMcpTools } from './webmcp/registerTools'
 
 export default function App() {
@@ -255,6 +256,8 @@ export default function App() {
             in place rather than stepping.
           </p>
         </section>
+
+        <EvalPanel />
 
         <section>
           <h2>Observation · 61 values</h2>

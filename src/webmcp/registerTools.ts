@@ -377,6 +377,60 @@ const tools: Tool[] = [
     }),
     execute: (a: { start?: number; end?: number; id?: string }) => core.inspectRollout(a ?? {}),
   },
+  // ── Evaluation ─────────────────────────────────────────────────────────────
+  {
+    name: 'list_scenarios',
+    title: 'List evaluation scenarios',
+    description:
+      'The conditions a policy can be evaluated against: flat ground, slopes, low friction and ' +
+      'pushes, with the exact parameters of each.',
+    inputSchema: NO_ARGS,
+    execute: () => core.listScenarios(),
+  },
+  {
+    name: 'run_eval_suite',
+    title: 'Evaluate a policy',
+    description:
+      'Run a policy across scenarios and seeds and report where it holds up and where it falls, with ' +
+      'success rate, distance, worst uprightness and the seed and time of every failure. Takes ' +
+      'roughly a second per episode, so this is EXPENSIVE — confirm with the user before running the ' +
+      'full suite. Defaults to all seven scenarios x three seeds.',
+    inputSchema: obj({
+      policy: { type: 'string', enum: ['alpha_walking', 'alpha_stand', 'alpha_sitstand', 'alpha_ground_pick', 'ball_kick_left', 'ball_kick_right', 'roller', 'roller_crouch', 'roulade'], description: 'Policy to evaluate. Defaults to the loaded one.' },
+      scenarios: { type: 'array', items: { type: 'string', enum: ['flat', 'slope-8', 'slope-15', 'low-friction', 'ice', 'push-light', 'push-hard'] }, description: 'Subset of scenarios. Defaults to all.' },
+      seeds: { type: 'array', items: { type: 'number' }, description: 'Seeds. Defaults to [1,2,3].' },
+      seconds: { type: 'number', minimum: 1, maximum: 15, description: 'Episode length. Defaults to 5.' },
+      vx: { type: 'number', minimum: -0.4, maximum: 0.4, description: 'Forward command during evaluation. Defaults to 0.3.' },
+    }),
+    execute: (a: Record<string, never>) => core.runEvalSuite(a ?? {}),
+  },
+  {
+    name: 'get_eval_report',
+    title: 'Get a stored evaluation',
+    description: 'Retrieve a previously computed evaluation without re-running it.',
+    inputSchema: obj({ policy: { type: 'string', description: 'Policy id.' } }, ['policy']),
+    execute: (a: { policy: string }) => core.getEvalReport(a?.policy),
+  },
+  {
+    name: 'compare_policies',
+    title: 'A/B two policies',
+    description:
+      'Evaluate two policies over the SAME scenarios, seeds and command, and report per-scenario ' +
+      'deltas in success rate and distance. Identical seeds mean the starting jitter matches, so a ' +
+      'difference in outcome is a difference in policy rather than luck. EXPENSIVE — it runs two ' +
+      'full suites, so confirm with the user first.',
+    inputSchema: obj(
+      {
+        a: { type: 'string', description: 'Baseline policy id.' },
+        b: { type: 'string', description: 'Policy to compare against the baseline.' },
+        seeds: { type: 'array', items: { type: 'number' }, description: 'Seeds. Defaults to [1,2,3].' },
+        seconds: { type: 'number', minimum: 1, maximum: 15, description: 'Episode length. Defaults to 5.' },
+        vx: { type: 'number', minimum: -0.4, maximum: 0.4, description: 'Forward command. Defaults to 0.3.' },
+      },
+      ['a', 'b'],
+    ),
+    execute: (a: { a: string; b: string }) => core.comparePolicies(a ?? ({} as never)),
+  },
   {
     name: 'check_reward_signs',
     title: 'Audit reward signs',

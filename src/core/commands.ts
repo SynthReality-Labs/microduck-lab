@@ -12,6 +12,8 @@ import {
 } from '../knowledge/playbook'
 import type { Episode } from '../sim/Episode'
 import { LIBRARY, recordEpisode } from '../sim/recorder'
+import { evaluatePolicy, type EvalReport } from '../sim/evaluate'
+import { SCENARIOS, type Scenario } from '../sim/scenarios'
 import {
   DEFAULT_OBJECTIVE, DEFAULT_TARGET, REWARD_TERMS as OBJ_TERMS, TERMS_BY_KEY,
   scoreEpisode, type Objective,
@@ -913,5 +915,163 @@ export function explainObservationSlice(key: string): Result<{
     what: slice.what,
     liveValues: live,
     joints: [...slice.joints],
+  }
+}
+
+// ── Evaluation ───────────────────────────────────────────────────────────────
+
+const evalReports = new Map<string, EvalReport>()
+const DEFAULT_SEEDS = [1, 2, 3]
+
+export function listScenarios(): Result<{ scenarios: unknown[] }> {
+  return {
+    ok: true,
+    scenarios: SCENARIOS.map((s) => ({
+      id: s.id, label: s.label,
+      slopeDeg: s.slopeDeg ?? 0,
+      friction: s.friction ?? 1.0,
+      push: s.push ?? null,
+    })),
+  }
+}
+
+export async function runEvalSuite(args: {
+  policy?: string
+  scenarios?: string[]
+  seeds?: number[]
+  seconds?: number
+  vx?: number
+}): Promise<Result<{ report: EvalReport }>> {
+  const s = requireSim()
+  if (isErr(s)) return s
+  const p = requirePolicyRunner()
+  if (isErr(p)) return p
+
+  const policyId = args.policy ?? p.currentPolicy ?? 'alpha_walking'
+  if (!POLICIES.some((e) => e.id === policyId)) {
+    return {
+      ok: false,
+      reason: `Unknown policy "${policyId}".`,
+      suggestion: `Valid: ${POLICIES.map((e) => e.id).join(', ')}`,
+    }
+  }
+
+  let scenarios: Scenario[] = SCENARIOS
+  if (args.scenarios?.length) {
+    const unknown = args.scenarios.filter((id) => !SCENARIOS.some((sc) => sc.id === id))
+    if (unknown.length) {
+      return {
+        ok: false,
+        reason: `Unknown scenario(s): ${unknown.join(', ')}.`,
+        suggestion: `Valid: ${SCENARIOS.map((sc) => sc.id).join(', ')}`,
+      }
+    }
+    scenarios = SCENARIOS.filter((sc) => args.scenarios!.includes(sc.id))
+  }
+
+  const previousPolicy = p.currentPolicy
+  const previousCommand = structuredClone(p.command)
+  const wasPaused = useStudio.getState().paused
+  useStudio.getState().set({ paused: true, evaluating: { done: 0, total: 0, label: 'starting' } })
+
+  try {
+    const report = await evaluatePolicy(s, p, {
+      policy: policyId as PolicyId,
+      scenarios,
+      seeds: args.seeds?.length ? args.seeds : DEFAULT_SEEDS,
+      seconds: args.seconds ?? 5,
+      command: { vx: args.vx ?? 0.3, vy: 0, vyaw: 0 },
+      onProgress: (done, total, label) =>
+        useStudio.getState().set({ evaluating: { done, total, label } }),
+    })
+    evalReports.set(policyId, report)
+    useStudio.getState().set({ evalPolicies: [...evalReports.keys()] })
+    return { ok: true, report }
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) }
+  } finally {
+    if (previousPolicy) {
+      const entry = POLICIES.find((e) => e.id === previousPolicy)
+      if (entry) await p.load(entry.id as PolicyId, entry.file)
+    }
+    p.command = previousCommand
+    s.reset('STAND')
+    useStudio.getState().set({
+      evaluating: null, paused: wasPaused, loadedPolicy: previousPolicy ?? null,
+    })
+  }
+}
+
+export function getEvalReport(policy: string): Result<{ report: EvalReport }> {
+  const report = evalReports.get(policy)
+  if (!report) {
+    return {
+      ok: false,
+      reason: `No evaluation for "${policy}".`,
+      suggestion: `Run run_eval_suite first. Evaluated so far: ${[...evalReports.keys()].join(', ') || '(none)'}`,
+    }
+  }
+  return { ok: true, report }
+}
+
+export function getEvalReports(): Map<string, EvalReport> {
+  return evalReports
+}
+
+/**
+ * A/B two policies over the same scenarios, seeds and command.
+ *
+ * Same seeds on both sides is what makes the comparison mean anything: the
+ * starting jitter is identical, so a difference in outcome is a difference in
+ * policy rather than in luck.
+ */
+export async function comparePolicies(args: {
+  a: string
+  b: string
+  seeds?: number[]
+  seconds?: number
+  vx?: number
+}): Promise<Result<{ comparison: unknown }>> {
+  if (!args?.a || !args?.b) {
+    return { ok: false, reason: 'Two policy ids are required.', suggestion: 'e.g. {"a":"alpha_walking","b":"alpha_stand"}' }
+  }
+  const seeds = args.seeds?.length ? args.seeds : DEFAULT_SEEDS
+  for (const id of [args.a, args.b]) {
+    const r = await runEvalSuite({ policy: id, seeds, seconds: args.seconds, vx: args.vx })
+    if (!r.ok) return r
+  }
+  const ra = evalReports.get(args.a)!
+  const rb = evalReports.get(args.b)!
+
+  const rows = ra.scenarios.map((sa) => {
+    const sb = rb.scenarios.find((x) => x.scenario === sa.scenario)!
+    return {
+      scenario: sa.scenario,
+      label: sa.label,
+      a: { successRate: sa.successRate, meanDistance: sa.meanDistance, worstUpright: sa.worstUpright },
+      b: { successRate: sb.successRate, meanDistance: sb.meanDistance, worstUpright: sb.worstUpright },
+      successDelta: +(sb.successRate - sa.successRate).toFixed(3),
+      distanceDelta: +(sb.meanDistance - sa.meanDistance).toFixed(3),
+    }
+  })
+
+  const wins = rows.filter((r) => r.successDelta > 0).map((r) => r.label)
+  const losses = rows.filter((r) => r.successDelta < 0).map((r) => r.label)
+  const summary =
+    wins.length === 0 && losses.length === 0
+      ? `${args.b} and ${args.a} survive identically across every scenario; compare distance instead.`
+      : [
+          wins.length ? `${args.b} is more robust on: ${wins.join(', ')}.` : '',
+          losses.length ? `${args.a} is more robust on: ${losses.join(', ')}.` : '',
+        ].filter(Boolean).join(' ')
+
+  return {
+    ok: true,
+    comparison: {
+      a: args.a, b: args.b, seeds, seconds: ra.seconds, command: ra.command,
+      overall: { a: ra.overallSuccessRate, b: rb.overallSuccessRate },
+      summary,
+      scenarios: rows,
+    },
   }
 }
