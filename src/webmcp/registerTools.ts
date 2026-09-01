@@ -65,25 +65,30 @@ const tools: Tool[] = [
   },
 ] as unknown as Tool[]
 
-/** Wrap execute so every agent call lands in the dev panel's log. */
+/**
+ * Wrap the callback so every agent call lands in the dev panel's log.
+ *
+ * The field name is not settled across sources: the challenge rules document
+ * `execute`, while Chrome's own examples use `handler`. They cost one property
+ * each, so we supply both rather than bet the gate on which one this build
+ * reads.
+ */
 function instrument(tool: Tool): Tool {
   const inner = tool.execute
-  return {
-    ...tool,
-    execute: async (args: Record<string, never>) => {
-      let result: unknown
-      let ok = true
-      try {
-        result = await inner(args)
-        ok = (result as { ok?: boolean })?.ok !== false
-      } catch (e) {
-        ok = false
-        result = { ok: false, reason: e instanceof Error ? e.message : String(e) }
-      }
+  const wrapped = async (args: Record<string, never>) => {
+    let result: unknown
+    let ok = true
+    try {
+      result = await inner(args)
+      ok = (result as { ok?: boolean })?.ok !== false
+    } catch (e) {
+      ok = false
+      result = { ok: false, reason: e instanceof Error ? e.message : String(e) }
+    }
       useStudio.getState().logToolCall({ at: Date.now(), tool: tool.name, args, result, ok })
       return result
-    },
   }
+  return { ...tool, execute: wrapped, handler: wrapped } as Tool
 }
 
 function findModelContext(): { ctx: ModelContext | null; surface: 'document' | 'navigator' | 'none' } {

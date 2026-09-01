@@ -9,7 +9,10 @@ export interface WebMcpToolDefinition<Args = Record<string, unknown>> {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /** Named `execute` in the challenge rules. */
   execute: (args: Args) => Promise<unknown> | unknown
+  /** Named `handler` in Chrome's own examples. We register both. */
+  handler?: (args: Args) => Promise<unknown> | unknown
 }
 
 export interface ModelContext {
