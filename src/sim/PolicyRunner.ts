@@ -88,7 +88,18 @@ export class PolicyRunner {
   }
 
   async load(id: PolicyId, file: string): Promise<void> {
-    const session = await ort.InferenceSession.create(`${POLICY_BASE}/${file}`, {
+    return this.loadFrom(id, `${POLICY_BASE}/${file}`)
+  }
+
+  /**
+   * Load a policy from any URL or object URL.
+   *
+   * The contract check is the same one upstream's robotd performs at load
+   * rather than "mid-stride" — an imported file with the wrong observation
+   * width must fail here, naming both widths, not produce a flailing duck.
+   */
+  async loadFrom(id: string, url: string): Promise<void> {
+    const session = await ort.InferenceSession.create(url, {
       executionProviders: ['wasm'],
     })
 
@@ -97,13 +108,18 @@ export class PolicyRunner {
     const meta = session.inputMetadata[0] as { name: string; shape?: readonly (number | string)[] }
     const width = Number(meta?.shape?.[meta.shape.length - 1])
     if (Number.isFinite(width) && width !== OBS_LEN) {
-      throw new Error(`policy unavailable: ${file}: observation width is ${width}, expected ${OBS_LEN}`)
+      throw new Error(`policy unavailable: observation width is ${width}, expected ${OBS_LEN}`)
+    }
+    const outMeta = session.outputMetadata[0] as { shape?: readonly (number | string)[] }
+    const outWidth = Number(outMeta?.shape?.[outMeta.shape.length - 1])
+    if (Number.isFinite(outWidth) && outWidth !== ACTION_LEN) {
+      throw new Error(`policy unavailable: action width is ${outWidth}, expected ${ACTION_LEN}`)
     }
 
     this.session?.release?.()
     this.session = session
     this.inputName = meta?.name ?? 'obs'
-    this.policyId = id
+    this.policyId = id as PolicyId
     this.lastAction.fill(0)
   }
 

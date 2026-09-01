@@ -15,6 +15,9 @@ import { LIBRARY, recordEpisode } from '../sim/recorder'
 import { evaluatePolicy, type EvalReport } from '../sim/evaluate'
 import { SCENARIOS, type Scenario } from '../sim/scenarios'
 import {
+  DEFAULT_RECIPE, TASKS, bundleFiles, composeJob, type Recipe, type Target,
+} from '../sim/recipe'
+import {
   DEFAULT_OBJECTIVE, DEFAULT_TARGET, REWARD_TERMS as OBJ_TERMS, TERMS_BY_KEY,
   scoreEpisode, type Objective,
 } from '../sim/objective'
@@ -155,12 +158,15 @@ export function setPaused(paused: boolean): Result<{ paused: boolean }> {
 // ── Policies ─────────────────────────────────────────────────────────────────
 
 export function listPolicies(): Result<{
-  policies: { id: string; label: string; role: string }[]
+  policies: { id: string; label: string; role: string; source: string }[]
   loaded: string | null
 }> {
   return {
     ok: true,
-    policies: POLICIES.map((p) => ({ id: p.id, label: p.label, role: p.role })),
+    policies: [
+      ...POLICIES.map((p) => ({ id: p.id, label: p.label, role: p.role, source: 'pollen' })),
+      ...listImportedPolicies().map((p) => ({ id: p.id, label: p.label, role: 'imported by the user', source: 'imported' })),
+    ],
     loaded: policy?.currentPolicy ?? null,
   }
 }
@@ -169,17 +175,20 @@ export async function loadPolicy(id: string): Promise<Result<{ loaded: string }>
   const p = requirePolicyRunner()
   if (isErr(p)) return p
   const entry = POLICIES.find((e) => e.id === id)
-  if (!entry) {
+  const importedEntry = entry ? null : imported.get(id)
+  if (!entry && !importedEntry) {
     return {
       ok: false,
       reason: `Unknown policy "${id}".`,
-      suggestion: `Valid ids: ${POLICIES.map((e) => e.id).join(', ')}`,
+      suggestion: `Valid ids: ${[...POLICIES.map((e) => e.id), ...imported.keys()].join(', ')}`,
     }
   }
   try {
-    await p.load(entry.id as PolicyId, entry.file)
-    useStudio.getState().set({ loadedPolicy: entry.id })
-    return { ok: true, loaded: entry.id }
+    if (entry) await p.load(entry.id as PolicyId, entry.file)
+    else await p.loadFrom(importedEntry!.id, importedEntry!.url)
+    const loadedId = entry ? entry.id : importedEntry!.id
+    useStudio.getState().set({ loadedPolicy: loadedId })
+    return { ok: true, loaded: loadedId }
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) }
   }
@@ -1074,4 +1083,138 @@ export async function comparePolicies(args: {
       scenarios: rows,
     },
   }
+}
+
+// ── Recipes and the escalation loop ─────────────────────────────────────────
+
+let recipe: Recipe = { ...DEFAULT_RECIPE, rewardWeights: {} }
+
+export function getRecipe(): Result<{ recipe: Recipe; tasks: unknown[] }> {
+  return {
+    ok: true,
+    recipe: structuredClone(recipe),
+    tasks: TASKS.map((t) => ({ id: t.id, label: t.label, about: t.about })),
+  }
+}
+
+export function setRecipe(patch: Partial<Recipe>): Result<{ recipe: Recipe }> {
+  if (patch.task && !TASKS.some((t) => t.id === patch.task)) {
+    return {
+      ok: false,
+      reason: `Unknown task "${patch.task}".`,
+      suggestion: `Valid tasks: ${TASKS.map((t) => t.id).join(', ')}`,
+    }
+  }
+  const targets: Target[] = ['local-gpu', 'local-cpu', 'hf-jobs']
+  if (patch.target && !targets.includes(patch.target)) {
+    return { ok: false, reason: `Unknown target "${patch.target}".`, suggestion: `Valid: ${targets.join(', ')}` }
+  }
+  recipe = {
+    ...recipe,
+    ...patch,
+    rewardWeights: { ...recipe.rewardWeights, ...(patch.rewardWeights ?? {}) },
+  }
+  useStudio.getState().set({ recipeVersion: useStudio.getState().recipeVersion + 1 })
+  return { ok: true, recipe: structuredClone(recipe) }
+}
+
+export function composeTrainingJob(): Result<{ recipe: Recipe; job: unknown }> {
+  return { ok: true, recipe: structuredClone(recipe), job: composeJob(recipe) }
+}
+
+/**
+ * Download the job as a bundle.
+ *
+ * Three files rather than a bare command: the runnable script, the recipe as
+ * data so it can be re-imported, and a README covering the smoke test and how
+ * to bring the resulting weights back. Downloaded as separate files because a
+ * zip would need a dependency for no real gain.
+ */
+export function exportTrainingJob(): Result<{ files: string[] }> {
+  const job = composeJob(recipe)
+  const files = bundleFiles(recipe, job)
+  for (const f of files) {
+    const blob = new Blob([f.content], { type: 'text/plain' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `${recipe.behaviour}-${f.name}`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
+  }
+  return { ok: true, files: files.map((f) => f.name) }
+}
+
+// ── Imported policies: the loop closes here ─────────────────────────────────
+
+export interface ImportedPolicy {
+  id: string
+  label: string
+  url: string
+  source: 'url' | 'file'
+}
+
+const imported = new Map<string, ImportedPolicy>()
+
+export function listImportedPolicies(): ImportedPolicy[] {
+  return [...imported.values()]
+}
+
+/**
+ * Import a policy trained elsewhere and make it immediately evaluable.
+ *
+ * This is what makes the escalation story real without any bridge or account:
+ * export a job, train it on your own GPU, drop the .onnx back in, and A/B it
+ * against the baseline over the same scenarios and seeds.
+ */
+export async function importPolicy(args: { url?: string; name?: string }): Promise<Result<{ imported: unknown }>> {
+  const p = requirePolicyRunner()
+  if (isErr(p)) return p
+  if (!args?.url) {
+    return {
+      ok: false,
+      reason: 'A url is required.',
+      suggestion: 'Pass a URL to an .onnx file, or drag the file onto the studio window.',
+    }
+  }
+  const id = args.name?.trim() || `imported-${imported.size + 1}`
+  if (POLICIES.some((e) => e.id === id)) {
+    return { ok: false, reason: `"${id}" collides with a published policy.`, suggestion: 'Choose another name.' }
+  }
+
+  const previous = p.currentPolicy
+  try {
+    // Loading IS the validation: the 61 -> 14 contract is checked here, so a
+    // wrong-shaped file fails now rather than becoming a flailing duck later.
+    await p.loadFrom(id, args.url)
+  } catch (e) {
+    if (previous) {
+      const entry = POLICIES.find((x) => x.id === previous)
+      if (entry) await p.load(entry.id as PolicyId, entry.file)
+    }
+    return {
+      ok: false,
+      reason: e instanceof Error ? e.message : String(e),
+      suggestion: 'Every Microduck policy must be obs[1,61] -> actions[1,14].',
+    }
+  }
+
+  const rec: ImportedPolicy = { id, label: args.name ?? id, url: args.url, source: 'url' }
+  imported.set(id, rec)
+  useStudio.getState().set({
+    loadedPolicy: id,
+    importedPolicies: [...imported.keys()],
+  })
+  return {
+    ok: true,
+    imported: { id, label: rec.label, contract: 'obs[1,61] -> actions[1,14] — validated', loaded: true },
+  }
+}
+
+/** Import from a File the user dropped or picked. */
+export async function importPolicyFile(file: File): Promise<Result<{ imported: unknown }>> {
+  const url = URL.createObjectURL(file)
+  const name = file.name.replace(/\.onnx$/i, '')
+  const r = await importPolicy({ url, name })
+  if (!r.ok) URL.revokeObjectURL(url)
+  return r
 }

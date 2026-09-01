@@ -14,6 +14,7 @@ import { Introspector } from './sim/introspect'
 import { LearnPanel } from './ui/LearnPanel'
 import { Timeline } from './ui/Timeline'
 import { EvalPanel } from './ui/EvalPanel'
+import { EscalatePanel } from './ui/EscalatePanel'
 import { probeAgentSurfaces, registerWebMcpTools, tryRegisterWebMcpTools } from './webmcp/registerTools'
 
 export default function App() {
@@ -258,6 +259,8 @@ export default function App() {
         </section>
 
         <EvalPanel />
+
+        <EscalatePanel />
 
         <section>
           <h2>Observation · 61 values</h2>

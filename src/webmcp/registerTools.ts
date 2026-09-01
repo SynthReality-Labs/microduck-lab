@@ -377,6 +377,73 @@ const tools: Tool[] = [
     }),
     execute: (a: { start?: number; end?: number; id?: string }) => core.inspectRollout(a ?? {}),
   },
+  // ── Escalation: design here, train elsewhere, bring the weights back ───────
+  {
+    name: 'get_training_recipe',
+    title: 'Get the training recipe',
+    description:
+      'The current training recipe — task, environment count, iterations, seed, reward weight ' +
+      'overrides and where it would run — plus every mjlab task available for the Microduck.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getRecipe(),
+  },
+  {
+    name: 'set_training_recipe',
+    title: 'Edit the training recipe',
+    description:
+      'Change part of the training recipe. Only upright and pose are settable as reward weights — ' +
+      'the other Microduck reward terms are added dynamically in the env config and mjlab does not ' +
+      'expose them as CLI flags, so emitting them would produce a command that fails on paste.',
+    inputSchema: obj({
+      behaviour: { type: 'string', description: 'Run name, used for the checkpoint directory.' },
+      task: { type: 'string', enum: ['Mjlab-Velocity-Flat-MicroDuck', 'Mjlab-Velocity-Rough-MicroDuck', 'Mjlab-VelStand-Flat-MicroDuck', 'Mjlab-StandUp-Flat-MicroDuck', 'Mjlab-Spin-Flat-MicroDuck', 'Mjlab-Kick-Flat-MicroDuck'], description: 'Which mjlab task to train.' },
+      numEnvs: { type: 'number', minimum: 8, maximum: 8192, description: 'Parallel environments. 4096 is the usual full-training value; 64 is the smoke test.' },
+      iterations: { type: 'number', minimum: 1, maximum: 20000, description: 'PPO iterations. ~4000 for a usable gait; 5 for a smoke test.' },
+      seed: { type: 'number', description: 'Random seed.' },
+      rewardWeights: { type: 'object', properties: { upright: { type: 'number' }, pose: { type: 'number' } }, additionalProperties: false, description: 'Reward weight overrides.' },
+      resumeFrom: { type: 'string', description: 'A .pt checkpoint to continue PPO from. Note Pollen publish ONNX only, so this needs your own checkpoint.' },
+      target: { type: 'string', enum: ['local-gpu', 'local-cpu', 'hf-jobs'], description: 'Where the job would run.' },
+    }),
+    execute: (a: Record<string, never>) => core.setRecipe(a ?? {}),
+  },
+  {
+    name: 'compose_training_job',
+    title: 'Compose the training command',
+    description:
+      'Turn the recipe into a REAL, runnable mjlab command, with a time estimate, a pre-flight smoke ' +
+      'test and any warnings. Every flag emitted has been verified against the real CLI and executed. ' +
+      'Use when the user is ready to move from the browser to actual training.',
+    inputSchema: NO_ARGS,
+    execute: () => core.composeTrainingJob(),
+  },
+  {
+    name: 'export_training_job',
+    title: 'Download the training bundle',
+    description:
+      'Download the job as three files: a runnable train.sh, recipe.json, and a README covering the ' +
+      'smoke test and how to bring the resulting weights back. Triggers browser downloads, so ask ' +
+      'the user before calling it.',
+    inputSchema: NO_ARGS,
+    execute: () => core.exportTrainingJob(),
+  },
+  {
+    name: 'import_policy',
+    title: 'Import a trained policy',
+    description:
+      'Load a policy trained elsewhere from a URL and make it immediately evaluable against the same ' +
+      'scenarios as the published ones. The 61 -> 14 contract is validated on load, so a wrong-shaped ' +
+      'file fails immediately rather than becoming a robot that flails. This is how the loop closes: ' +
+      'export a job, train it on your own GPU, bring the .onnx back, A/B it against the baseline.',
+    inputSchema: obj(
+      {
+        url: { type: 'string', description: 'URL of an .onnx policy file.' },
+        name: { type: 'string', description: 'Name to give it in the policy list.' },
+      },
+      ['url'],
+    ),
+    execute: (a: { url: string; name?: string }) => core.importPolicy(a ?? ({} as never)),
+  },
+
   // ── Evaluation ─────────────────────────────────────────────────────────────
   {
     name: 'list_scenarios',
