@@ -93,9 +93,21 @@ export function describeRobot(): Result<{
 
 // ── Mutations ────────────────────────────────────────────────────────────────
 
+const POSES: KeyframeName[] = ['INIT', 'STAND', 'SIT', 'FOLD']
+
 export function resetSim(pose: KeyframeName = 'STAND'): Result<{ pose: string }> {
   const s = requireSim()
   if (isErr(s)) return s
+  // Validate before touching MuJoCo. An unknown key otherwise reaches
+  // mj_resetDataKeyframe as undefined and surfaces as 'Cannot convert
+  // "undefined" to int', which tells an agent nothing it can act on.
+  if (!POSES.includes(pose)) {
+    return {
+      ok: false,
+      reason: `Unknown pose "${pose}".`,
+      suggestion: `Valid poses: ${POSES.join(', ')}`,
+    }
+  }
   s.reset(pose)
   return { ok: true, pose }
 }
