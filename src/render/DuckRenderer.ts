@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { MicroDuckSim } from '../sim/MicroDuckSim'
 import { useStudio } from '../core/store'
 
@@ -17,14 +18,26 @@ export class DuckRenderer {
   private readonly mat = new THREE.Matrix4()
   private raf = 0
 
+  readonly controls: OrbitControls
+  /** When true the orbit target tracks the duck; the user's angle and zoom are kept. */
+  follow = true
   private readonly raycaster = new THREE.Raycaster()
   private readonly pointer = new THREE.Vector2()
+  private downAt: { x: number; y: number } | null = null
+
+  /** Hold-to-charge push state. */
+  private charge: { since: number; dir: THREE.Vector3 } | null = null
+  private onCharge: ((strength: number) => void) | null = null
+  private onShove: ((dir: [number, number], magnitude: number) => void) | null = null
+  private readonly cue = new THREE.ArrowHelper(
+    new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 0.12, 0xffcc4d, 0.035, 0.022,
+  )
+  private cueUntil = 0
   private highlighted = new Set<number>()
   private onPick: ((geomId: number) => void) | null = null
 
   /** Smoothed point the camera orbits, so a walking duck stays in frame. */
   private readonly focus = new THREE.Vector3(0, 0, 0.1)
-  private readonly offset = new THREE.Vector3(0.55, -0.55, 0.22)
   private trunkGeomId = -1
 
   constructor(
@@ -38,7 +51,17 @@ export class DuckRenderer {
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 50)
     this.camera.up.set(0, 0, 1)
     this.camera.position.set(0.55, -0.55, 0.32)
-    this.camera.lookAt(0, 0, 0.1)
+
+    // Orbit/pan/zoom. The controls own the camera's position; "follow" moves
+    // their TARGET, so tracking the duck and the user's chosen angle compose
+    // instead of fighting.
+    this.controls = new OrbitControls(this.camera, canvas)
+    this.controls.enableDamping = true
+    this.controls.dampingFactor = 0.12
+    this.controls.minDistance = 0.15
+    this.controls.maxDistance = 6
+    this.controls.maxPolarAngle = Math.PI * 0.495 // stop just above the floor
+    this.controls.target.set(0, 0, 0.1)
 
     this.scene.background = new THREE.Color(0x0f1418)
     this.scene.fog = new THREE.Fog(0x0f1418, 1.5, 6)
@@ -50,9 +73,12 @@ export class DuckRenderer {
     const grid = new THREE.GridHelper(20, 200, 0x2a3440, 0x1a2028)
     grid.rotation.x = Math.PI / 2 // GridHelper is XZ by default; MuJoCo's floor is XY
     this.scene.add(grid)
+    this.cue.visible = false
+    this.scene.add(this.cue)
 
     this.buildDuck()
     canvas.addEventListener('pointerdown', this.handlePointerDown)
+    canvas.addEventListener('pointerup', this.handlePointerUp)
     // Follow the trunk rather than the world origin. Uses a geom on the trunk
     // body so we can read the position straight out of the same live view the
     // meshes already use.
@@ -87,8 +113,68 @@ export class DuckRenderer {
     this.onPick = fn
   }
 
+  /** Charge grows with hold time and saturates, so a long press is a hard shove
+   *  but never an absurd one. 1.2 s reaches full strength. */
+  private static chargeOf(heldMs: number): number {
+    return Math.min(heldMs / 1200, 1) * 2.2
+  }
+
+  setPushHandlers(
+    onCharge: ((strength: number) => void) | null,
+    onShove: ((dir: [number, number], magnitude: number) => void) | null,
+  ): void {
+    this.onCharge = onCharge
+    this.onShove = onShove
+  }
+
   private handlePointerDown = (e: PointerEvent): void => {
-    if (!this.onPick) return
+    this.downAt = { x: e.clientX, y: e.clientY }
+
+    // Pressing ON the duck charges a push; pressing anywhere else orbits. That
+    // keeps one pointer doing both without a mode switch to explain.
+    if (!this.onShove || !this.hitsDuck(e)) return
+    const away = new THREE.Vector3()
+      .subVectors(this.controls.target, this.camera.position)
+      .setZ(0)
+      .normalize()
+    this.charge = { since: performance.now(), dir: away }
+    this.controls.enabled = false
+  }
+
+  /**
+   * Picking happens on pointer UP, and only if the pointer barely moved.
+   * OrbitControls owns drags, so a click must be distinguished from an orbit —
+   * otherwise every camera nudge would also reselect a joint.
+   */
+  private hitsDuck(e: PointerEvent): boolean {
+    const rect = this.canvas.getBoundingClientRect()
+    this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+    this.raycaster.setFromCamera(this.pointer, this.camera)
+    return this.raycaster.intersectObjects(this.meshes.map((m) => m.mesh), false).length > 0
+  }
+
+  private handlePointerUp = (e: PointerEvent): void => {
+    const down = this.downAt
+    this.downAt = null
+
+    if (this.charge) {
+      const held = performance.now() - this.charge.since
+      const magnitude = DuckRenderer.chargeOf(held)
+      const dir = this.charge.dir
+      this.charge = null
+      this.controls.enabled = true
+      this.onCharge?.(0)
+      // A tap is a selection, not a shove.
+      if (held > 120) {
+        this.onShove?.([dir.x, dir.y], magnitude)
+        return
+      }
+    }
+
+    if (!this.onPick || !down) return
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return
+
     const rect = this.canvas.getBoundingClientRect()
     this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
     this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
@@ -147,19 +233,53 @@ export class DuckRenderer {
   /** Ease the camera toward the duck. Critically damped enough to look calm
    *  while never losing a duck walking at the top of its command range. */
   private followDuck(): void {
+    if (this.trunkGeomId < 0 || !this.follow) return
+    const xpos = this.sim.data.geom_xpos
+    const p = this.trunkGeomId * 3
+    this.focus.set(xpos[p], xpos[p + 1], Math.max(xpos[p + 2], 0.05))
+    // Move the orbit target, not the camera: the user's angle and zoom survive.
+    this.controls.target.lerp(this.focus, 0.08)
+  }
+
+  /** Show an impulse arrow at the duck, whoever caused it. */
+  showPushCue(dir: [number, number], magnitude: number): void {
     if (this.trunkGeomId < 0) return
     const xpos = this.sim.data.geom_xpos
     const p = this.trunkGeomId * 3
-    this.focus.lerp(
-      new THREE.Vector3(xpos[p], xpos[p + 1], Math.max(xpos[p + 2], 0.05)),
-      0.06,
+    const from = new THREE.Vector3(dir[0], dir[1], 0).normalize()
+    // Sized against the duck (0.25 m tall): long enough to read as an impulse,
+    // small enough not to hide the robot it is describing.
+    const len = 0.08 + Math.min(magnitude, 3) * 0.04
+    this.cue.position.set(
+      xpos[p] - from.x * (len + 0.04),
+      xpos[p + 1] - from.y * (len + 0.04),
+      xpos[p + 2],
     )
-    this.camera.position.copy(this.focus).add(this.offset)
-    this.camera.lookAt(this.focus)
+    this.cue.setDirection(from)
+    this.cue.setLength(len, len * 0.32, len * 0.2)
+    this.cue.visible = true
+    this.cueUntil = performance.now() + 700
   }
 
   render(): void {
     this.followDuck()
+    if (this.charge) {
+      this.onCharge?.(DuckRenderer.chargeOf(performance.now() - this.charge.since) / 2.2)
+    }
+    if (this.cue.visible) {
+      const left = this.cueUntil - performance.now()
+      if (left <= 0) this.cue.visible = false
+      else {
+        // Fade out so the cue reads as an impulse rather than a fixture.
+        const a = Math.min(left / 400, 1)
+        for (const child of this.cue.children) {
+          const m = (child as THREE.Mesh).material as THREE.Material
+          m.transparent = true
+          m.opacity = a
+        }
+      }
+    }
+    this.controls.update()
     this.renderer.render(this.scene, this.camera)
   }
 
@@ -193,6 +313,8 @@ export class DuckRenderer {
   dispose(): void {
     this.stop()
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown)
+    this.canvas.removeEventListener('pointerup', this.handlePointerUp)
+    this.controls.dispose()
     for (const { mesh } of this.meshes) {
       mesh.geometry.dispose()
       ;(mesh.material as THREE.Material).dispose()

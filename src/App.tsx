@@ -7,8 +7,8 @@ import { DuckRenderer } from './render/DuckRenderer'
 import { useStudio } from './core/store'
 import {
   attachIntrospector, attachPolicyRunner, attachRenderer, attachSim, clearSelection,
-  clearHighlight, explainObservationSlice, getCommand, loadPolicy, renderReviewFrame, resetSim,
-  selectJoint, setCommand, setPaused, unloadPolicy, OBS_SLICES,
+  applyDisturbance, clearHighlight, explainObservationSlice, getCommand, loadPolicy, onPush,
+  renderReviewFrame, resetSim, selectJoint, setCommand, setPaused, unloadPolicy, OBS_SLICES,
 } from './core/commands'
 import { Introspector } from './sim/introspect'
 import { LearnPanel } from './ui/LearnPanel'
@@ -31,6 +31,7 @@ export default function App() {
   const selection = useStudio((s) => s.selection)
   const commandVersion = useStudio((s) => s.commandVersion)
   const [policyError, setPolicyError] = useState<string | null>(null)
+  const [charge, setCharge] = useState(0)
   const [obsSlice, setObsSlice] = useState<string | null>(null)
   const [obsInfo, setObsInfo] = useState<{ what: string; liveValues: number[] } | null>(null)
 
@@ -61,6 +62,7 @@ export default function App() {
     let renderer: DuckRenderer | null = null
     let sim: MicroDuckSim | null = null
     let cancelled = false
+    let unsubscribePush: (() => void) | null = null
 
     // StrictMode mounts twice in dev. Every await below is a point where the
     // effect may already have been torn down, so each one re-checks before
@@ -111,6 +113,12 @@ export default function App() {
           if (geomId < 0) clearSelection()
           else selectJoint({ geomId })
         })
+        renderer.setPushHandlers(
+          (strength) => setCharge(strength),
+          (dir, magnitude) => applyDisturbance({ vector: dir, magnitude, source: 'mouse' }),
+        )
+        // One cue for every push, whoever caused it — mouse or agent.
+        unsubscribePush = onPush(({ x, y, magnitude }) => renderer?.showPushCue([x, y], magnitude))
         renderer.start({
           // tick() is async; its own busy guard drops overlapping ticks rather
           // than queueing them, so the duck never acts on a stale observation.
@@ -151,6 +159,7 @@ export default function App() {
     return () => {
       cancelled = true
       removeEventListener('resize', onResize)
+      unsubscribePush?.()
       renderer?.dispose()
       renderer = null
       attachRenderer(null)
@@ -170,6 +179,12 @@ export default function App() {
           <h1>MicroDuck Lab</h1>
           <p>Learn reinforcement learning by teaching robots</p>
         </div>
+        {charge > 0 && (
+          <div className="charge">
+            <div className="charge-bar"><i style={{ width: `${charge * 100}%` }} /></div>
+            <small>hold to charge · release to shove</small>
+          </div>
+        )}
         {status !== 'ready' && (
           <div className="overlay">
             {status === 'error' ? (

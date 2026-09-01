@@ -13,7 +13,7 @@ import {
 import type { Episode } from '../sim/Episode'
 import { LIBRARY, recordEpisode } from '../sim/recorder'
 import { evaluatePolicy, type EvalReport } from '../sim/evaluate'
-import { SCENARIOS, type Scenario } from '../sim/scenarios'
+import { SCENARIOS, applyScenario, type Scenario, type ScenarioHandle } from '../sim/scenarios'
 import {
   DEFAULT_RECIPE, TASKS, bundleFiles, composeJob, type Recipe, type Target,
 } from '../sim/recipe'
@@ -449,10 +449,28 @@ export function explainRewardTerm(term: string): Result<{ term: string; what: st
  * force, so "5 N for one step" cannot mean something different at a different
  * timestep — an agent asking twice gets the same push.
  */
-export function applyDisturbance(args: { magnitude?: number; direction?: 'front' | 'back' | 'left' | 'right' }): Result<{
-  magnitude: number
-  direction: string
-}> {
+/**
+ * Listeners for pushes, so every shove gets the same visual cue.
+ *
+ * Deliberately at the command layer rather than in the pointer handler: an
+ * agent-initiated push must look identical to a mouse-initiated one, otherwise
+ * the most interesting thing the agent does is invisible on camera.
+ */
+type PushListener = (p: { x: number; y: number; magnitude: number; source: 'agent' | 'mouse' }) => void
+const pushListeners = new Set<PushListener>()
+
+export function onPush(fn: PushListener): () => void {
+  pushListeners.add(fn)
+  return () => pushListeners.delete(fn)
+}
+
+export function applyDisturbance(args: {
+  magnitude?: number
+  direction?: 'front' | 'back' | 'left' | 'right'
+  /**世界-frame direction, used by the mouse push. Overrides `direction`. */
+  vector?: [number, number]
+  source?: 'agent' | 'mouse'
+}): Result<{ magnitude: number; direction: string }> {
   const s = requireSim()
   if (isErr(s)) return s
   const magnitude = Math.min(Math.max(args.magnitude ?? 0.4, 0), 3)
@@ -460,14 +478,21 @@ export function applyDisturbance(args: { magnitude?: number; direction?: 'front'
   const vec: Record<string, [number, number]> = {
     front: [-1, 0], back: [1, 0], left: [0, -1], right: [0, 1],
   }
-  const d = vec[direction]
+  let d = args.vector ?? vec[direction]
   if (!d) {
     return { ok: false, reason: `Unknown direction "${direction}".`, suggestion: 'Valid: front, back, left, right' }
   }
+  const len = Math.hypot(d[0], d[1]) || 1
+  d = [d[0] / len, d[1] / len]
+
   // qvel[0..3] on a free joint is linear velocity in the world frame.
   s.data.qvel[0] += d[0] * magnitude
   s.data.qvel[1] += d[1] * magnitude
-  return { ok: true, magnitude, direction }
+
+  for (const fn of pushListeners) {
+    fn({ x: d[0], y: d[1], magnitude, source: args.source ?? 'agent' })
+  }
+  return { ok: true, magnitude, direction: args.vector ? 'custom' : direction }
 }
 
 // ── Rollouts and objectives: Learn mode ──────────────────────────────────────
@@ -982,6 +1007,10 @@ export async function runEvalSuite(args: {
   const previousCommand = structuredClone(p.command)
   const wasPaused = useStudio.getState().paused
   useStudio.getState().set({ paused: true, evaluating: { done: 0, total: 0, label: 'starting' } })
+  // Scenarios mutate the same gravity and friction fields the live world uses,
+  // so clear the live settings first and put them back afterwards. Otherwise a
+  // user standing on ice would silently bias every scenario in the suite.
+  clearLiveEnvironment()
 
   try {
     const report = await evaluatePolicy(s, p, {
@@ -1004,6 +1033,7 @@ export async function runEvalSuite(args: {
       if (entry) await p.load(entry.id as PolicyId, entry.file)
     }
     p.command = previousCommand
+    reapplyEnvironment()
     s.reset('STAND')
     useStudio.getState().set({
       evaluating: null, paused: wasPaused, loadedPolicy: previousPolicy ?? null,
@@ -1217,4 +1247,100 @@ export async function importPolicyFile(file: File): Promise<Result<{ imported: u
   const r = await importPolicy({ url, name })
   if (!r.ok) URL.revokeObjectURL(url)
   return r
+}
+
+// ── Live world settings ──────────────────────────────────────────────────────
+
+let worldHandle: ScenarioHandle | null = null
+let world = { slopeDeg: 0, friction: 1.0 }
+
+/** Presets deliberately share values with the eval scenarios, so "make it
+ *  slippery" and the Ice row of the eval table mean the same thing. */
+export const ENVIRONMENT_PRESETS = {
+  flat: { slopeDeg: 0, friction: 1.0, about: 'Default ground.' },
+  'gentle-slope': { slopeDeg: 8, friction: 1.0, about: 'An 8 degree incline. The duck stays upright but loses ground.' },
+  'steep-slope': { slopeDeg: 15, friction: 1.0, about: '15 degrees. The walking policy falls within about a second.' },
+  slippery: { slopeDeg: 0, friction: 0.15, about: 'Measurably harder — travel drops from 0.63 m to about 0.37 m.' },
+  ice: { slopeDeg: 0, friction: 0.05, about: 'The walking policy goes down within roughly two seconds.' },
+} as const
+
+export function getEnvironment(): Result<{ environment: unknown; presets: unknown }> {
+  return {
+    ok: true,
+    environment: { ...world },
+    presets: Object.entries(ENVIRONMENT_PRESETS).map(([id, p]) => ({ id, ...p })),
+  }
+}
+
+/**
+ * Change the world the live robot is standing in.
+ *
+ * Reuses the same applyScenario used by the evaluation suite, so what the user
+ * plays with and what gets measured are the same conditions rather than two
+ * implementations that can drift.
+ */
+export function setEnvironment(args: { preset?: string; slopeDeg?: number; friction?: number }): Result<{
+  environment: unknown
+}> {
+  const s = requireSim()
+  if (isErr(s)) return s
+
+  let next = { ...world }
+  if (args.preset) {
+    const p = ENVIRONMENT_PRESETS[args.preset as keyof typeof ENVIRONMENT_PRESETS]
+    if (!p) {
+      return {
+        ok: false,
+        reason: `Unknown preset "${args.preset}".`,
+        suggestion: `Valid presets: ${Object.keys(ENVIRONMENT_PRESETS).join(', ')}`,
+      }
+    }
+    next = { slopeDeg: p.slopeDeg, friction: p.friction }
+  }
+  if (args.slopeDeg !== undefined) next.slopeDeg = Math.max(-30, Math.min(30, args.slopeDeg))
+  if (args.friction !== undefined) next.friction = Math.max(0.01, Math.min(2, args.friction))
+
+  worldHandle?.restore()
+  worldHandle = null
+  world = next
+
+  if (next.slopeDeg !== 0 || next.friction !== 1.0) {
+    worldHandle = applyScenario(s, {
+      id: 'live', label: 'live',
+      slopeDeg: next.slopeDeg || undefined,
+      friction: next.friction !== 1.0 ? next.friction : undefined,
+    })
+  }
+  useStudio.getState().set({ environment: { ...world } })
+  return {
+    ok: true,
+    environment: {
+      ...world,
+      note:
+        next.friction >= 0.35 && next.friction < 1
+          ? 'Note: friction above about 0.2 barely affects an 800 g duck. Use 0.15 to slow it, 0.05 to put it down.'
+          : undefined,
+    },
+  }
+}
+
+/** Drop live world settings so an evaluation measures the scenario alone. */
+export function clearLiveEnvironment(): void {
+  worldHandle?.restore()
+  worldHandle = null
+}
+
+/** The eval suite mutates the same fields, so it must restore live settings after. */
+export function reapplyEnvironment(): void {
+  const s = sim
+  if (!s) return
+  worldHandle?.restore()
+  worldHandle = null
+  if (world.slopeDeg !== 0 || world.friction !== 1.0) {
+    worldHandle = applyScenario(s, {
+      id: 'live', label: 'live',
+      slopeDeg: world.slopeDeg || undefined,
+      friction: world.friction !== 1.0 ? world.friction : undefined,
+    })
+  }
 }

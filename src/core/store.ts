@@ -35,6 +35,7 @@ interface StudioState {
   evalPolicies: string[]
   recipeVersion: number
   importedPolicies: string[]
+  environment: { slopeDeg: number; friction: number }
   webmcp: { available: boolean; surface: 'document' | 'navigator' | 'none'; registered: string[] }
   toolLog: ToolCallLogEntry[]
 
@@ -65,6 +66,7 @@ export const useStudio = create<StudioState>((set) => ({
   evalPolicies: [],
   recipeVersion: 0,
   importedPolicies: [],
+  environment: { slopeDeg: 0, friction: 1.0 },
   webmcp: { available: false, surface: 'none', registered: [] },
   toolLog: [],
 

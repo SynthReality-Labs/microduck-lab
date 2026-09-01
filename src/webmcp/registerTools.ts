@@ -444,6 +444,30 @@ const tools: Tool[] = [
     execute: (a: { url: string; name?: string }) => core.importPolicy(a ?? ({} as never)),
   },
 
+  // ── The world the robot is standing in ─────────────────────────────────────
+  {
+    name: 'get_environment',
+    title: 'Get the world settings',
+    description: 'The live ground conditions — slope and friction — and the presets available.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getEnvironment(),
+  },
+  {
+    name: 'set_environment',
+    title: 'Change the ground',
+    description:
+      'Change the ground the robot is walking on, live. Use a preset, or set slope and friction ' +
+      'directly. Friction above about 0.2 barely affects an 800 g duck: 0.15 measurably slows it and ' +
+      '0.05 puts it down, so reach for those rather than 0.5. Presets share their values with the ' +
+      'evaluation scenarios, so "make it slippery" and the Ice row of an eval report mean the same thing.',
+    inputSchema: obj({
+      preset: { type: 'string', enum: ['flat', 'gentle-slope', 'steep-slope', 'slippery', 'ice'], description: 'A named ground condition.' },
+      slopeDeg: { type: 'number', minimum: -30, maximum: 30, description: 'Incline in degrees; positive is uphill in +x.' },
+      friction: { type: 'number', minimum: 0.01, maximum: 2, description: 'Ground sliding friction; default is 1.0.' },
+    }),
+    execute: (a: Record<string, never>) => core.setEnvironment(a ?? {}),
+  },
+
   // ── Evaluation ─────────────────────────────────────────────────────────────
   {
     name: 'list_scenarios',
