@@ -226,6 +226,92 @@ const tools: Tool[] = [
     }),
     execute: (a: { magnitude?: number; direction?: 'front' | 'back' | 'left' | 'right' }) => core.applyDisturbance(a ?? {}),
   },
+  // ── Learn mode: rollouts and reward design ─────────────────────────────────
+  {
+    name: 'record_rollout_library',
+    title: 'Record the rollout library',
+    description:
+      'Simulate and record the canonical set of rollouts — a clean walk, a slow walk, a forward ' +
+      'roll and a stand — using the real published policies. Takes a few seconds. Required before ' +
+      'any reward scoring, and worth re-running only if the library was cleared.',
+    inputSchema: NO_ARGS,
+    execute: () => core.recordLibrary(),
+  },
+  {
+    name: 'list_rollouts',
+    title: 'List recorded rollouts',
+    description:
+      'The recorded rollouts with distance travelled, final trunk height and whether the robot fell. ' +
+      'Use to see what is available to score.',
+    inputSchema: NO_ARGS,
+    execute: () => core.listRollouts(),
+  },
+  {
+    name: 'get_objective',
+    title: 'Get the reward function',
+    description:
+      'The current reward terms and their weights, plus every available term with what it measures. ' +
+      'Call before changing weights so you know what you are editing.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getObjective(),
+  },
+  {
+    name: 'set_reward_weight',
+    title: 'Set a reward weight',
+    description:
+      'Change the weight of one reward term. This does NOT retrain anything — it changes how stored ' +
+      'rollouts are scored, which is exactly how you demonstrate what a reward function actually ' +
+      'prefers. Follow with score_rollouts to see the effect.',
+    inputSchema: obj(
+      {
+        term: {
+          type: 'string',
+          enum: ['track_lin_vel', 'forward_progress', 'upright', 'height', 'action_rate_l2', 'energy', 'body_ang_vel'],
+          description: 'Which reward term to reweight.',
+        },
+        weight: { type: 'number', description: 'New weight. Penalty terms are already negative internally, so use positive weights.' },
+      },
+      ['term', 'weight'],
+    ),
+    execute: (a: { term: string; weight: number }) => core.setRewardWeight(a?.term, a?.weight),
+  },
+  {
+    name: 'reset_objective',
+    title: 'Reset the reward function',
+    description: 'Restore the balanced default reward weights.',
+    inputSchema: NO_ARGS,
+    execute: () => core.resetObjective(),
+  },
+  {
+    name: 'score_rollouts',
+    title: 'Score and rank all rollouts',
+    description:
+      'Score every recorded rollout under the current reward function and rank them best to worst, ' +
+      'with a per-term breakdown. This is how you show reward hacking: inflate a poorly specified ' +
+      'term and watch a pathological rollout out-rank the clean walk.',
+    inputSchema: NO_ARGS,
+    execute: () => core.scoreRollouts(),
+  },
+  {
+    name: 'check_reward_signs',
+    title: 'Audit reward signs',
+    description:
+      "Run Pollen's own sign-convention check over the current reward function: every penalty term " +
+      'must contribute <= 0. A penalty that pays out has been double-negated into a reward for the ' +
+      'violation, which is where butt-hopping and crash-sits come from. Run this before spending any ' +
+      'GPU time, and whenever a rollout scores surprisingly well.',
+    inputSchema: NO_ARGS,
+    execute: () => core.checkRewardSigns(),
+  },
+  {
+    name: 'get_reward_breakdown',
+    title: 'Reward breakdown for one rollout',
+    description:
+      'Per-term reward contributions for a single rollout, sorted by how much each term moved the ' +
+      'total. Use to answer "why did this score so well?".',
+    inputSchema: obj({ id: { type: 'string', description: 'Rollout id, e.g. clean-walk or roulade.' } }, ['id']),
+    execute: (a: { id: string }) => core.getRewardBreakdown(a?.id),
+  },
   {
     name: 'set_paused',
     title: 'Pause or resume physics',

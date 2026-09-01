@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MicroDuckSim } from './sim/MicroDuckSim'
 import { mountModelAssets } from './sim/mujocoRuntime'
 import { PolicyRunner } from './sim/PolicyRunner'
@@ -7,9 +7,10 @@ import { DuckRenderer } from './render/DuckRenderer'
 import { useStudio } from './core/store'
 import {
   attachIntrospector, attachPolicyRunner, attachRenderer, attachSim, clearSelection,
-  loadPolicy, resetSim, selectJoint, setCommand, setPaused, unloadPolicy,
+  getCommand, loadPolicy, resetSim, selectJoint, setCommand, setPaused, unloadPolicy,
 } from './core/commands'
 import { Introspector } from './sim/introspect'
+import { LearnPanel } from './ui/LearnPanel'
 import { probeAgentSurfaces, registerWebMcpTools, tryRegisterWebMcpTools } from './webmcp/registerTools'
 
 export default function App() {
@@ -24,14 +25,20 @@ export default function App() {
   const [simTime, setSimTime] = useState(0)
   const loadedPolicy = useStudio((s) => s.loadedPolicy)
   const selection = useStudio((s) => s.selection)
-  const [cmd, setCmd] = useState({ vx: 0, vy: 0, vyaw: 0 })
+  const commandVersion = useStudio((s) => s.commandVersion)
   const [policyError, setPolicyError] = useState<string | null>(null)
 
-  const applyCommand = (patch: Partial<typeof cmd>) => {
-    const next = { ...cmd, ...patch }
-    setCmd(next)
-    setCommand(next)
-  }
+  // Slider values are DERIVED from the command the policy is actually reading,
+  // not from local state — so a change made by the agent moves the slider, and
+  // the human and the agent are demonstrably looking at one value (D8).
+  const cmd = useMemo(() => {
+    void commandVersion
+    const r = getCommand()
+    const twist = r.ok ? (r.command as { twist: [number, number, number] }).twist : [0, 0, 0]
+    return { vx: twist[0], vy: twist[1], vyaw: twist[2] }
+  }, [commandVersion])
+
+  const applyCommand = (patch: Partial<typeof cmd>) => setCommand({ ...cmd, ...patch })
 
   const onPickPolicy = async (id: string) => {
     setPolicyError(null)
@@ -162,6 +169,7 @@ export default function App() {
             )}
           </div>
         )}
+        <LearnPanel />
       </div>
 
       <aside className="panel">

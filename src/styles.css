@@ -77,3 +77,32 @@ select { width: 100%; background: #1e2731; color: var(--text); border: 1px solid
 .tools.probe li::before { content: ""; }
 .tools.probe li.yes { color: var(--ok); }
 .tools.probe li.no { color: #5c6873; }
+
+/* ── Learn mode ──────────────────────────────────────────────────────────── */
+.stage { display: flex; flex-direction: column; }
+.stage canvas { flex: 1; min-height: 0; }
+.learn {
+  border-top: 1px solid var(--line); background: var(--panel);
+  padding: 10px 14px 12px; flex: 0 0 auto; max-height: 46%; overflow: auto;
+}
+.learn-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.learn-head h2 { margin: 0; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .09em; color: var(--dim); font-weight: 600; }
+.learn-body { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; align-items: start; }
+
+.ranking { list-style: none; margin: 0; padding: 0; }
+.ranking li {
+  display: grid; grid-template-columns: 26px 150px 1fr 52px;
+  align-items: center; gap: 8px; padding: 3px 0; font-size: 12px;
+  /* The reorder is the lesson, so make the movement legible. */
+  transition: transform .28s ease;
+}
+.ranking .rk { color: var(--dim); font-variant-numeric: tabular-nums; }
+.ranking li:first-child .rk, .ranking li:first-child .nm { color: var(--accent); }
+.ranking .br { height: 6px; background: #202a33; border-radius: 3px; overflow: hidden; }
+.ranking .br i { display: block; height: 100%; background: #3d5a6d; transition: width .28s ease; }
+.ranking li:first-child .br i { background: var(--accent); }
+.ranking .sc { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
+
+.weights .slider { grid-template-columns: 130px 1fr 44px; }
+.weights .slider em.warn { color: var(--bad); font-weight: 600; }

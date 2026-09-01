@@ -1,5 +1,6 @@
 import type { MainModule, MjModel, MjData } from '@mujoco/mujoco'
 import { getMujoco, mountModelAssets, WORK_DIR } from './mujocoRuntime'
+import { CONTROL_DT, PHYSICS_DT } from './policyContract'
 
 /** Keyframes defined in scene.xml, in declaration order. */
 export const KEYFRAME = { INIT: 0, STAND: 1, SIT: 2, FOLD: 3 } as const
@@ -34,6 +35,15 @@ export class MicroDuckSim {
     await mountModelAssets()
     const mj = await getMujoco()
     const model = mj.MjModel.from_xml_path(`${WORK_DIR}/${scene}`)
+
+    // The MJCF sets no timestep, so MuJoCo defaults to 0.002 — but these
+    // policies were trained by mjlab at 0.005 with decimation 4, i.e. 50 Hz
+    // control. Matching the training timestep matters twice over: the learned
+    // dynamics assume it, and a mismatched timestep silently changes the
+    // control rate, which looks like a badly tracking policy rather than a
+    // configuration error.
+    model.opt.timestep = PHYSICS_DT
+
     const data = new mj.MjData(model)
     const sim = new MicroDuckSim(mj, model, data)
     sim.reset('STAND')
@@ -42,6 +52,14 @@ export class MicroDuckSim {
 
   get timestep(): number {
     return this.model.opt.timestep
+  }
+
+  /**
+   * Physics steps per control step, derived rather than hardcoded, so the 50 Hz
+   * contract survives any future change to the model timestep.
+   */
+  get controlDecimation(): number {
+    return Math.max(1, Math.round(CONTROL_DT / this.timestep))
   }
 
   /** Actuator names, in ctrl order — this is the 14-D action space. */
@@ -68,9 +86,19 @@ export class MicroDuckSim {
     for (let i = 0; i < n; i++) this.mj.mj_step(this.model, this.data)
   }
 
-  /** Advance by wall-clock seconds, capped so a stalled tab cannot spiral. */
+  private carry = 0
+
+  /**
+   * Advance by wall-clock seconds, capped so a stalled tab cannot spiral.
+   *
+   * Keeps the sub-step remainder so simulated time tracks real time instead of
+   * losing a slice every frame — at 60 fps and a 5 ms timestep, truncating
+   * would run the clock ~10% slow and quietly bias every velocity we report.
+   */
   advance(seconds: number, maxSteps = 40): number {
-    const steps = Math.min(Math.round(seconds / this.timestep), maxSteps)
+    this.carry += seconds
+    const steps = Math.min(Math.floor(this.carry / this.timestep), maxSteps)
+    this.carry -= steps * this.timestep
     this.step(steps)
     return steps
   }

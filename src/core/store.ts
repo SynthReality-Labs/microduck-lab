@@ -21,6 +21,9 @@ interface StudioState {
   /** What the human currently has selected. This is agent-readable state. */
   selection: { jointId: number; jointName: string; bodyName: string } | null
   highlight: string[]
+  rolloutIds: string[]
+  recording: { active: boolean; label: string } | null
+  objectiveVersion: number
   webmcp: { available: boolean; surface: 'document' | 'navigator' | 'none'; registered: string[] }
   toolLog: ToolCallLogEntry[]
 
@@ -43,6 +46,9 @@ export const useStudio = create<StudioState>((set) => ({
   commandVersion: 0,
   selection: null,
   highlight: [],
+  rolloutIds: [],
+  recording: null,
+  objectiveVersion: 0,
   webmcp: { available: false, surface: 'none', registered: [] },
   toolLog: [],
 

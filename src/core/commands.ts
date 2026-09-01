@@ -10,6 +10,12 @@ import {
   PLAYBOOK_TOPICS, REWARD_TERMS, SIGN_CONVENTION_RULE, getPlaybookSection,
   type PlaybookTopic,
 } from '../knowledge/playbook'
+import type { Episode } from '../sim/Episode'
+import { LIBRARY, recordEpisode } from '../sim/recorder'
+import {
+  DEFAULT_OBJECTIVE, DEFAULT_TARGET, REWARD_TERMS as OBJ_TERMS, TERMS_BY_KEY,
+  scoreEpisode, type Objective,
+} from '../sim/objective'
 import { useStudio } from './store'
 
 /**
@@ -451,4 +457,198 @@ export function applyDisturbance(args: { magnitude?: number; direction?: 'front'
   s.data.qvel[0] += d[0] * magnitude
   s.data.qvel[1] += d[1] * magnitude
   return { ok: true, magnitude, direction }
+}
+
+// ── Rollouts and objectives: Learn mode ──────────────────────────────────────
+
+const rollouts = new Map<string, Episode>()
+let objective: Objective = { ...DEFAULT_OBJECTIVE }
+/** Every rollout is scored against this same task. See ScoringTarget. */
+const scoringTarget = { ...DEFAULT_TARGET }
+
+export function getRollout(id: string): Episode | undefined {
+  return rollouts.get(id)
+}
+
+/**
+ * Record the canonical rollout library.
+ *
+ * Recorded live rather than shipped as fixtures, so what gets scored is
+ * something this machine actually simulated with real Pollen policies.
+ */
+export async function recordLibrary(): Promise<Result<{ recorded: string[] }>> {
+  const s = requireSim()
+  if (isErr(s)) return s
+  const p = requirePolicyRunner()
+  if (isErr(p)) return p
+
+  const store = useStudio.getState()
+  const wasPaused = store.paused
+  // Recording swaps policies and resets the robot. Capture what the studio was
+  // showing so the user gets their session back rather than silently inheriting
+  // whichever policy happened to be recorded last.
+  const previousPolicy = p.currentPolicy
+  const previousCommand = structuredClone(p.command)
+  store.set({ paused: true })
+  const recorded: string[] = []
+  try {
+    for (const spec of LIBRARY) {
+      useStudio.getState().set({ recording: { active: true, label: spec.label } })
+      const ep = await recordEpisode(s, p, spec)
+      rollouts.set(ep.id, ep)
+      recorded.push(ep.id)
+    }
+    useStudio.getState().set({ rolloutIds: [...rollouts.keys()] })
+    return { ok: true, recorded }
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) }
+  } finally {
+    if (previousPolicy) {
+      const entry = POLICIES.find((e) => e.id === previousPolicy)
+      if (entry) await p.load(entry.id as PolicyId, entry.file)
+    } else {
+      p.unload()
+      p.holdHomePose()
+    }
+    p.command = previousCommand
+    s.reset('STAND')
+    useStudio.getState().set({
+      recording: null,
+      paused: wasPaused,
+      loadedPolicy: previousPolicy ?? null,
+    })
+  }
+}
+
+export function listRollouts(): Result<{ rollouts: unknown[] }> {
+  return {
+    ok: true,
+    rollouts: [...rollouts.values()].map((e) => ({
+      id: e.id, label: e.label, policy: e.policy, note: e.note,
+      seconds: +(e.length * e.dt).toFixed(2),
+      distanceX: +(e.posX[e.length - 1] - e.posX[0]).toFixed(3),
+      finalHeight: +e.posZ[e.length - 1].toFixed(3),
+      terminated: e.terminated, terminationReason: e.terminationReason,
+    })),
+  }
+}
+
+export function getObjective(): Result<{ objective: Objective; task: unknown; terms: unknown[] }> {
+  return {
+    ok: true,
+    objective: { ...objective },
+    task: { ...scoringTarget, description: 'Every rollout is scored against this same task: walk forward at this velocity.' },
+    terms: OBJ_TERMS.map((t) => ({ key: t.key, label: t.label, kind: t.kind, description: t.description })),
+  }
+}
+
+export function setRewardWeight(term: string, weight: number): Result<{ objective: Objective }> {
+  if (!TERMS_BY_KEY.has(term)) {
+    return {
+      ok: false,
+      reason: `Unknown reward term "${term}".`,
+      suggestion: `Valid terms: ${OBJ_TERMS.map((t) => t.key).join(', ')}`,
+    }
+  }
+  if (!Number.isFinite(weight)) return { ok: false, reason: 'weight must be a finite number.' }
+  objective = { ...objective, [term]: weight }
+  useStudio.getState().set({ objectiveVersion: useStudio.getState().objectiveVersion + 1 })
+  return { ok: true, objective: { ...objective } }
+}
+
+export function resetObjective(): Result<{ objective: Objective }> {
+  objective = { ...DEFAULT_OBJECTIVE }
+  useStudio.getState().set({ objectiveVersion: useStudio.getState().objectiveVersion + 1 })
+  return { ok: true, objective: { ...objective } }
+}
+
+export interface RankedRow {
+  rank: number
+  id: string
+  label: string
+  total: number
+  perTerm: { key: string; label: string; weight: number; mean: number; contribution: number }[]
+}
+
+/** Score every rollout under the current objective and rank them. Pure. */
+export function scoreRollouts(): Result<{ objective: Objective; ranking: RankedRow[] }> {
+  if (rollouts.size === 0) {
+    return {
+      ok: false,
+      reason: 'No rollouts recorded yet.',
+      suggestion: 'Call record_rollout_library first.',
+    }
+  }
+  const rows = [...rollouts.values()]
+    .map((ep) => {
+      const score = scoreEpisode(ep, objective, scoringTarget)
+      return { id: ep.id, label: ep.label, total: score.total, perTerm: score.perTerm }
+    })
+    .sort((a, b) => b.total - a.total)
+    .map((r, i) => ({ rank: i + 1, ...r }))
+  return { ok: true, objective: { ...objective }, ranking: rows }
+}
+
+export function getRewardBreakdown(id: string): Result<{ rollout: string; total: number; perTerm: unknown[] }> {
+  const ep = rollouts.get(id)
+  if (!ep) {
+    return {
+      ok: false,
+      reason: `No rollout "${id}".`,
+      suggestion: `Recorded rollouts: ${[...rollouts.keys()].join(', ') || '(none yet)'}`,
+    }
+  }
+  const score = scoreEpisode(ep, objective, scoringTarget)
+  return { ok: true, rollout: id, total: score.total, perTerm: score.perTerm }
+}
+
+/**
+ * Pollen's "infallible check", as a tool.
+ *
+ * Their playbook states it plainly: every `Episode_Reward/<penalty>` must be
+ * <= 0 on every run. A negative weight on a self-negating penalty
+ * double-negates into a reward for the violation, and the policy farms it —
+ * which is where butt-hopping and crash-sits come from.
+ *
+ * Here the same check runs over recorded rollouts instead of a training log, so
+ * it catches the error before any GPU time is spent.
+ */
+export function checkRewardSigns(): Result<{
+  passed: boolean
+  findings: { term: string; label: string; weight: number; worstContribution: number; verdict: string }[]
+  rule: string
+}> {
+  if (rollouts.size === 0) {
+    return { ok: false, reason: 'No rollouts recorded yet.', suggestion: 'Call record_rollout_library first.' }
+  }
+  const findings: { term: string; label: string; weight: number; worstContribution: number; verdict: string }[] = []
+
+  for (const term of OBJ_TERMS) {
+    const weight = objective[term.key]
+    if (weight === undefined || weight === 0) continue
+    let worst = 0
+    for (const ep of rollouts.values()) {
+      const score = scoreEpisode(ep, { [term.key]: weight }, scoringTarget)
+      const c = score.perTerm[0]?.contribution ?? 0
+      if (c > worst) worst = c
+    }
+    if (term.kind === 'penalty' && worst > 0) {
+      findings.push({
+        term: term.key,
+        label: term.label,
+        weight,
+        worstContribution: +worst.toFixed(4),
+        verdict:
+          `FAIL — this is a penalty but it is PAYING OUT (+${worst.toFixed(3)}). A negative weight ` +
+          'on a self-negating penalty double-negates into a reward for the violation. Use a positive weight.',
+      })
+    }
+  }
+
+  return {
+    ok: true,
+    passed: findings.length === 0,
+    findings,
+    rule: SIGN_CONVENTION_RULE,
+  }
 }

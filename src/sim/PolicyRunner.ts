@@ -78,6 +78,11 @@ export class PolicyRunner {
     return new PolicyRunner(sim, idx, trunk)
   }
 
+  /** The previous action — obs[34..48], and what action-rate is measured against. */
+  get previousAction(): Float32Array {
+    return this.lastAction
+  }
+
   get currentPolicy(): PolicyId | null {
     return this.policyId
   }
