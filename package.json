@@ -10,11 +10,12 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
+    "@mujoco/mujoco": "^3.12.0",
+    "onnxruntime-web": "^1.29.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "three": "^0.181.0",
-    "zustand": "^5.0.8",
-    "@mujoco/mujoco": "^3.12.0"
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",

@@ -60,3 +60,15 @@ button {
   border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer;
 }
 button:hover { border-color: #3a4652; }
+
+select { width: 100%; background: #1e2731; color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+.hint { font-size: 11px; color: var(--dim); margin: 8px 0 0; line-height: 1.45; }
+.hint code { font-size: 10.5px; }
+.inline-err { color: var(--bad); font-size: 11px; margin: 6px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.slider { display: grid; grid-template-columns: 62px 1fr 46px; align-items: center;
+  gap: 8px; font-size: 12px; padding: 3px 0; }
+.slider em { font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums;
+  font-size: 11px; text-align: right; }
+.slider input { width: 100%; accent-color: var(--accent); }

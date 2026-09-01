@@ -16,6 +16,8 @@ interface StudioState {
   loadProgress: { done: number; total: number }
   paused: boolean
   simTime: number
+  loadedPolicy: string | null
+  commandVersion: number
   webmcp: { available: boolean; surface: 'document' | 'navigator' | 'none'; registered: string[] }
   toolLog: ToolCallLogEntry[]
 
@@ -34,6 +36,8 @@ export const useStudio = create<StudioState>((set) => ({
   loadProgress: { done: 0, total: 0 },
   paused: false,
   simTime: 0,
+  loadedPolicy: null,
+  commandVersion: 0,
   webmcp: { available: false, surface: 'none', registered: [] },
   toolLog: [],
 

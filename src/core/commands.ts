@@ -1,4 +1,6 @@
 import type { MicroDuckSim, KeyframeName } from '../sim/MicroDuckSim'
+import type { PolicyRunner } from '../sim/PolicyRunner'
+import { POLICIES, type PolicyId } from '../sim/policyContract'
 import { useStudio } from './store'
 
 /**
@@ -12,9 +14,25 @@ export type Err = { ok: false; reason: string; suggestion?: string }
 export type Result<T> = Ok<T> | Err
 
 let sim: MicroDuckSim | null = null
+let policy: PolicyRunner | null = null
 
 export function attachSim(s: MicroDuckSim | null): void {
   sim = s
+}
+
+export function attachPolicyRunner(p: PolicyRunner | null): void {
+  policy = p
+}
+
+function requirePolicyRunner(): PolicyRunner | Err {
+  if (!policy) {
+    return {
+      ok: false,
+      reason: 'The policy runner is not ready yet.',
+      suggestion: 'Wait for status to become "ready", then retry.',
+    }
+  }
+  return policy
 }
 
 function requireSim(): MicroDuckSim | Err {
@@ -85,4 +103,79 @@ export function resetSim(pose: KeyframeName = 'STAND'): Result<{ pose: string }>
 export function setPaused(paused: boolean): Result<{ paused: boolean }> {
   useStudio.getState().set({ paused })
   return { ok: true, paused }
+}
+
+// ── Policies ─────────────────────────────────────────────────────────────────
+
+export function listPolicies(): Result<{
+  policies: { id: string; label: string; role: string }[]
+  loaded: string | null
+}> {
+  return {
+    ok: true,
+    policies: POLICIES.map((p) => ({ id: p.id, label: p.label, role: p.role })),
+    loaded: policy?.currentPolicy ?? null,
+  }
+}
+
+export async function loadPolicy(id: string): Promise<Result<{ loaded: string }>> {
+  const p = requirePolicyRunner()
+  if (isErr(p)) return p
+  const entry = POLICIES.find((e) => e.id === id)
+  if (!entry) {
+    return {
+      ok: false,
+      reason: `Unknown policy "${id}".`,
+      suggestion: `Valid ids: ${POLICIES.map((e) => e.id).join(', ')}`,
+    }
+  }
+  try {
+    await p.load(entry.id as PolicyId, entry.file)
+    useStudio.getState().set({ loadedPolicy: entry.id })
+    return { ok: true, loaded: entry.id }
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export function unloadPolicy(): Result<{ loaded: null }> {
+  const p = requirePolicyRunner()
+  if (isErr(p)) return p
+  p.unload()
+  p.holdHomePose()
+  useStudio.getState().set({ loadedPolicy: null })
+  return { ok: true, loaded: null }
+}
+
+// ── Command ──────────────────────────────────────────────────────────────────
+
+export interface CommandPatch {
+  vx?: number
+  vy?: number
+  vyaw?: number
+  head?: [number, number, number, number]
+  body?: { z?: number; roll?: number; pitch?: number }
+}
+
+export function setCommand(patch: CommandPatch): Result<{ command: unknown }> {
+  const p = requirePolicyRunner()
+  if (isErr(p)) return p
+  const c = p.command
+  if (patch.vx !== undefined) c.twist[0] = patch.vx
+  if (patch.vy !== undefined) c.twist[1] = patch.vy
+  if (patch.vyaw !== undefined) c.twist[2] = patch.vyaw
+  if (patch.head) c.head = patch.head
+  if (patch.body) {
+    if (patch.body.z !== undefined) c.body.z = patch.body.z
+    if (patch.body.roll !== undefined) c.body.roll = patch.body.roll
+    if (patch.body.pitch !== undefined) c.body.pitch = patch.body.pitch
+  }
+  useStudio.getState().set({ commandVersion: useStudio.getState().commandVersion + 1 })
+  return { ok: true, command: { twist: c.twist, head: c.head, body: c.body } }
+}
+
+export function getCommand(): Result<{ command: unknown }> {
+  const p = requirePolicyRunner()
+  if (isErr(p)) return p
+  return { ok: true, command: { twist: p.command.twist, head: p.command.head, body: p.command.body } }
 }

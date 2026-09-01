@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { MicroDuckSim } from './sim/MicroDuckSim'
 import { mountModelAssets } from './sim/mujocoRuntime'
+import { PolicyRunner } from './sim/PolicyRunner'
+import { POLICIES } from './sim/policyContract'
 import { DuckRenderer } from './render/DuckRenderer'
 import { useStudio } from './core/store'
-import { attachSim, resetSim, setPaused } from './core/commands'
+import {
+  attachPolicyRunner, attachSim, loadPolicy, resetSim, setCommand, setPaused, unloadPolicy,
+} from './core/commands'
 import { registerWebMcpTools } from './webmcp/registerTools'
 
 export default function App() {
@@ -16,6 +20,25 @@ export default function App() {
   const toolLog = useStudio((s) => s.toolLog)
   const paused = useStudio((s) => s.paused)
   const [simTime, setSimTime] = useState(0)
+  const loadedPolicy = useStudio((s) => s.loadedPolicy)
+  const [cmd, setCmd] = useState({ vx: 0, vy: 0, vyaw: 0 })
+  const [policyError, setPolicyError] = useState<string | null>(null)
+
+  const applyCommand = (patch: Partial<typeof cmd>) => {
+    const next = { ...cmd, ...patch }
+    setCmd(next)
+    setCommand(next)
+  }
+
+  const onPickPolicy = async (id: string) => {
+    setPolicyError(null)
+    if (!id) {
+      unloadPolicy()
+      return
+    }
+    const r = await loadPolicy(id)
+    if (!r.ok) setPolicyError(r.reason)
+  }
 
   useEffect(() => {
     const store = useStudio.getState()
@@ -50,11 +73,25 @@ export default function App() {
         }
 
         attachSim(sim)
+        const runner = PolicyRunner.create(sim)
+        runner.holdHomePose()
+        attachPolicyRunner(runner)
         setRobot({ nu: sim.model.nu, nq: sim.model.nq })
         store.set({ status: 'ready' })
 
+        if (import.meta.env.DEV) {
+          // Dev-only handle: lets Playwright and the terminal assert on real
+          // simulation state instead of scraping the DOM.
+          ;(globalThis as Record<string, unknown>).__duck = { sim, runner }
+        }
+
         renderer = new DuckRenderer(canvas, sim)
-        renderer.start(() => setSimTime(sim!.data.time))
+        renderer.start({
+          // tick() is async; its own busy guard drops overlapping ticks rather
+          // than queueing them, so the duck never acts on a stale observation.
+          beforePhysics: (dt) => void runner.tick(dt),
+          onFrame: () => setSimTime(sim!.data.time),
+        })
 
         await registerWebMcpTools()
       } catch (e) {
@@ -76,6 +113,7 @@ export default function App() {
       removeEventListener('resize', onResize)
       renderer?.dispose()
       renderer = null
+      attachPolicyRunner(null)
       attachSim(null)
       sim?.dispose()
       sim = null
@@ -125,6 +163,55 @@ export default function App() {
             <button onClick={() => resetSim('SIT')}>Sit</button>
             <button onClick={() => setPaused(!paused)}>{paused ? 'Resume' : 'Pause'}</button>
           </div>
+        </section>
+
+        <section>
+          <h2>Policy</h2>
+          <select
+            value={loadedPolicy ?? ''}
+            onChange={(e) => void onPickPolicy(e.target.value)}
+            disabled={status !== 'ready'}
+          >
+            <option value="">— none (hold home pose) —</option>
+            {POLICIES.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+          {policyError && <p className="inline-err">{policyError}</p>}
+          <p className="hint">
+            Nine Apache-2.0 policies from Pollen Robotics. Every one is
+            <code> obs[1,61] → actions[1,14]</code>, run here at 50&nbsp;Hz.
+          </p>
+        </section>
+
+        <section>
+          <h2>Command</h2>
+          {/* Ranges match what the policies were trained on — mjlab's
+              lin_vel_x (-0.4,0.4), lin_vel_y (-0.3,0.3), ang_vel_z (-1,1).
+              Commanding outside these is out of distribution. */}
+          {([
+            ['vx', 'Forward', -0.4, 0.4],
+            ['vy', 'Lateral', -0.3, 0.3],
+            ['vyaw', 'Yaw rate', -1.0, 1.0],
+          ] as const).map(([key, label, min, max]) => (
+            <label className="slider" key={key}>
+              <span>{label}</span>
+              <input
+                type="range" min={min} max={max} step={0.005}
+                value={cmd[key]}
+                onChange={(e) => applyCommand({ [key]: Number(e.target.value) } as Partial<typeof cmd>)}
+              />
+              <em>{cmd[key].toFixed(3)}</em>
+            </label>
+          ))}
+          <div className="controls">
+            <button onClick={() => applyCommand({ vx: 0.3, vy: 0, vyaw: 0 })}>Walk forward</button>
+            <button onClick={() => applyCommand({ vx: 0, vy: 0, vyaw: 0 })}>Zero</button>
+          </div>
+          <p className="hint">
+            alpha_walking is a <em>velstand</em> policy: below roughly 0.15&nbsp;m/s it stands
+            in place rather than stepping.
+          </p>
         </section>
 
         <section>

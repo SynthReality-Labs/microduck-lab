@@ -17,6 +17,11 @@ export class DuckRenderer {
   private readonly mat = new THREE.Matrix4()
   private raf = 0
 
+  /** Smoothed point the camera orbits, so a walking duck stays in frame. */
+  private readonly focus = new THREE.Vector3(0, 0, 0.1)
+  private readonly offset = new THREE.Vector3(0.55, -0.55, 0.22)
+  private trunkGeomId = -1
+
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly sim: MicroDuckSim,
@@ -31,17 +36,22 @@ export class DuckRenderer {
     this.camera.lookAt(0, 0, 0.1)
 
     this.scene.background = new THREE.Color(0x0f1418)
-    this.scene.fog = new THREE.Fog(0x0f1418, 2, 9)
+    this.scene.fog = new THREE.Fog(0x0f1418, 1.5, 6)
     this.scene.add(new THREE.HemisphereLight(0xbfd4e6, 0x202428, 2.0))
     const key = new THREE.DirectionalLight(0xffffff, 2.2)
     key.position.set(1.2, -1.6, 2.4)
     this.scene.add(key)
 
-    const grid = new THREE.GridHelper(4, 40, 0x2a3440, 0x1a2028)
+    const grid = new THREE.GridHelper(20, 200, 0x2a3440, 0x1a2028)
     grid.rotation.x = Math.PI / 2 // GridHelper is XZ by default; MuJoCo's floor is XY
     this.scene.add(grid)
 
     this.buildDuck()
+    // Follow the trunk rather than the world origin. Uses a geom on the trunk
+    // body so we can read the position straight out of the same live view the
+    // meshes already use.
+    const first = this.meshes[0]
+    this.trunkGeomId = first ? first.geomId : -1
     this.resize()
   }
 
@@ -91,7 +101,22 @@ export class DuckRenderer {
     this.camera.updateProjectionMatrix()
   }
 
+  /** Ease the camera toward the duck. Critically damped enough to look calm
+   *  while never losing a duck walking at the top of its command range. */
+  private followDuck(): void {
+    if (this.trunkGeomId < 0) return
+    const xpos = this.sim.data.geom_xpos
+    const p = this.trunkGeomId * 3
+    this.focus.lerp(
+      new THREE.Vector3(xpos[p], xpos[p + 1], Math.max(xpos[p + 2], 0.05)),
+      0.06,
+    )
+    this.camera.position.copy(this.focus).add(this.offset)
+    this.camera.lookAt(this.focus)
+  }
+
   render(): void {
+    this.followDuck()
     this.renderer.render(this.scene, this.camera)
   }
 
@@ -100,15 +125,19 @@ export class DuckRenderer {
    * per frame. Paused freezes physics but keeps rendering, so the camera stays
    * live while the agent inspects a held state.
    */
-  start(onFrame?: () => void): void {
+  start(opts: { beforePhysics?: (dt: number) => void; onFrame?: () => void } = {}): void {
     let last = performance.now()
     const loop = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.1)
       last = now
-      if (!useStudio.getState().paused) this.sim.advance(dt)
+      if (!useStudio.getState().paused) {
+        // Controller first, then physics: ctrl must be set for the steps it governs.
+        opts.beforePhysics?.(dt)
+        this.sim.advance(dt)
+      }
       this.syncTransforms()
       this.render()
-      onFrame?.()
+      opts.onFrame?.()
       this.raf = requestAnimationFrame(loop)
     }
     this.raf = requestAnimationFrame(loop)
