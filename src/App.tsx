@@ -7,9 +7,11 @@ import { DuckRenderer } from './render/DuckRenderer'
 import { useStudio } from './core/store'
 import {
   attachIntrospector, attachPolicyRunner, attachRenderer, attachSim, clearSelection,
-  applyDisturbance, clearHighlight, explainObservationSlice, getCommand, loadPolicy, onPush,
-  renderReviewFrame, resetSim, selectJoint, setCommand, setPaused, unloadPolicy, OBS_SLICES,
+  applyDisturbance, clearHighlight, clearProps, explainObservationSlice, getCommand, loadPolicy,
+  onPush, renderReviewFrame, resetSim, selectJoint, setCommand, setPaused, spawnProp,
+  unloadPolicy, OBS_SLICES,
 } from './core/commands'
+import { PROPS } from './sim/props'
 import { Introspector } from './sim/introspect'
 import { LearnPanel } from './ui/LearnPanel'
 import { Timeline } from './ui/Timeline'
@@ -76,7 +78,7 @@ export default function App() {
         )
         if (cancelled) return
 
-        const created = await MicroDuckSim.create('scene.xml')
+        const created = await MicroDuckSim.create('scene_lab.xml')
         if (cancelled) {
           created.dispose()
           return
@@ -271,6 +273,19 @@ export default function App() {
             alpha_walking is a <em>velstand</em> policy: below roughly 0.15&nbsp;m/s it stands
             in place rather than stepping.
           </p>
+        </section>
+
+        <section>
+          <h2>Obstacles</h2>
+          <div className="obs-slices">
+            {PROPS.map((p) => (
+              <button key={p.id} title={p.about} onClick={() => spawnProp({ id: p.id })}>
+                {p.label}
+              </button>
+            ))}
+            <button onClick={() => clearProps()}>Clear</button>
+          </div>
+          <p className="hint">Dropped 45 cm in front of the duck. Small box and ball are light enough to shove.</p>
         </section>
 
         <EvalPanel />

@@ -9,9 +9,12 @@ export type KeyframeName = keyof typeof KEYFRAME
 export interface GeomVisual {
   /** Index into model.geom_* and data.geom_x*. */
   geomId: number
-  positions: Float32Array
-  normals: Float32Array
   rgba: [number, number, number, number]
+  /** Mesh geoms carry baked triangles; primitives carry their MuJoCo size. */
+  kind: 'mesh' | 'box' | 'sphere' | 'capsule' | 'cylinder'
+  positions?: Float32Array
+  normals?: Float32Array
+  size?: [number, number, number]
 }
 
 /**
@@ -135,11 +138,35 @@ export class MicroDuckSim {
     const { geom_type, geom_group, geom_dataid, geom_rgba } = model
     const { mesh_vertadr, mesh_vertnum, mesh_faceadr, mesh_facenum, mesh_vert, mesh_face,
             mesh_normal, mesh_normaladr } = model
-    const MESH = this.mj.mjtGeom.mjGEOM_MESH.value
+    const T = this.mj.mjtGeom
+    const MESH = T.mjGEOM_MESH.value
+    const PRIMITIVES: Record<number, GeomVisual['kind']> = {
+      [T.mjGEOM_BOX.value]: 'box',
+      [T.mjGEOM_SPHERE.value]: 'sphere',
+      [T.mjGEOM_CAPSULE.value]: 'capsule',
+      [T.mjGEOM_CYLINDER.value]: 'cylinder',
+    }
+    const { geom_size } = model
 
     const out: GeomVisual[] = []
     for (let g = 0; g < model.ngeom; g++) {
-      if (geom_group[g] !== group || geom_type[g] !== MESH) continue
+      if (geom_group[g] !== group) continue
+      const rgba: [number, number, number, number] = [
+        geom_rgba[g * 4], geom_rgba[g * 4 + 1], geom_rgba[g * 4 + 2], geom_rgba[g * 4 + 3],
+      ]
+
+      // Primitives (the props we inject) have no mesh to expand — Three.js can
+      // build them from MuJoCo's half-extents directly.
+      const primitive = PRIMITIVES[geom_type[g]]
+      if (primitive) {
+        out.push({
+          geomId: g, kind: primitive, rgba,
+          size: [geom_size[g * 3], geom_size[g * 3 + 1], geom_size[g * 3 + 2]],
+        })
+        continue
+      }
+
+      if (geom_type[g] !== MESH) continue
       const meshId = geom_dataid[g]
       if (meshId < 0) continue
 
@@ -166,12 +193,7 @@ export class MicroDuckSim {
         }
       }
       void mesh_vertnum
-      out.push({
-        geomId: g,
-        positions,
-        normals,
-        rgba: [geom_rgba[g * 4], geom_rgba[g * 4 + 1], geom_rgba[g * 4 + 2], geom_rgba[g * 4 + 3]],
-      })
+      out.push({ geomId: g, kind: 'mesh', positions, normals, rgba })
     }
     return out
   }

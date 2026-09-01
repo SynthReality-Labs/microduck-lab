@@ -1,6 +1,7 @@
 import loadMujoco from '@mujoco/mujoco'
 import type { MainModule } from '@mujoco/mujoco'
 import { MODEL_XMLS, MODEL_MESHES } from './assetManifest'
+import { sceneWithProps } from './props'
 
 /**
  * Single-threaded MuJoCo. Deliberate: the multi-threaded build needs
@@ -58,7 +59,17 @@ export async function mountModelAssets(
 
   await Promise.all([
     ...MODEL_XMLS.map(async (name) => {
-      FS.writeFile(`${WORK_DIR}/${name}`, await fetchBytes(`${ASSET_BASE}/${name}`))
+      const bytes = await fetchBytes(`${ASSET_BASE}/${name}`)
+      if (name === 'scene.xml') {
+        // Write the upstream file untouched, plus a lab variant carrying our
+        // props. Keeping them separate means what we redistribute stays
+        // byte-identical to Pollen's.
+        FS.writeFile(`${WORK_DIR}/${name}`, bytes)
+        const text = new TextDecoder().decode(bytes)
+        FS.writeFile(`${WORK_DIR}/scene_lab.xml`, new TextEncoder().encode(sceneWithProps(text)))
+      } else {
+        FS.writeFile(`${WORK_DIR}/${name}`, bytes)
+      }
       tick()
     }),
     ...MODEL_MESHES.map(async (name) => {

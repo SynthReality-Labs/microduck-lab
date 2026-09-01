@@ -14,6 +14,7 @@ import type { Episode } from '../sim/Episode'
 import { LIBRARY, recordEpisode } from '../sim/recorder'
 import { evaluatePolicy, type EvalReport } from '../sim/evaluate'
 import { SCENARIOS, applyScenario, type Scenario, type ScenarioHandle } from '../sim/scenarios'
+import { PARK_X, PARK_Z, PROPS } from '../sim/props'
 import {
   DEFAULT_RECIPE, TASKS, bundleFiles, composeJob, type Recipe, type Target,
 } from '../sim/recipe'
@@ -1343,4 +1344,98 @@ export function reapplyEnvironment(): void {
       friction: world.friction !== 1.0 ? world.friction : undefined,
     })
   }
+}
+
+// ── Props: things to put in the duck's way ──────────────────────────────────
+
+function propJointAddress(s: MicroDuckSim, id: string): number {
+  const jid = s.mj.mj_name2id(s.model, s.mj.mjtObj.mjOBJ_JOINT.value, `prop_${id}_free`)
+  return jid < 0 ? -1 : s.model.jnt_qposadr[jid]
+}
+
+export function listProps(): Result<{ props: unknown[]; spawned: string[] }> {
+  return {
+    ok: true,
+    props: PROPS.map((p) => ({ id: p.id, label: p.label, about: p.about, mass: p.mass })),
+    spawned: useStudio.getState().spawnedProps,
+  }
+}
+
+/**
+ * Put a prop in front of the duck.
+ *
+ * Placed relative to the robot's current position by default, because "in its
+ * path" is what anyone actually means — an absolute coordinate would need the
+ * user to know where the duck currently is.
+ */
+export function spawnProp(args: { id: string; ahead?: number; lateral?: number; pitchDeg?: number }): Result<{
+  spawned: string
+  at: [number, number, number]
+}> {
+  const s = requireSim()
+  if (isErr(s)) return s
+  const spec = PROPS.find((p) => p.id === args?.id)
+  if (!spec) {
+    return {
+      ok: false,
+      reason: `Unknown prop "${args?.id}".`,
+      suggestion: `Valid props: ${PROPS.map((p) => p.id).join(', ')}`,
+    }
+  }
+  const adr = propJointAddress(s, spec.id)
+  if (adr < 0) return { ok: false, reason: `Prop "${spec.id}" is not in the loaded scene.` }
+
+  const ahead = args.ahead ?? 0.45
+  const lateral = args.lateral ?? 0
+  const qpos = s.data.qpos
+  const x = qpos[0] + ahead
+  const y = qpos[1] + lateral
+  const z = spec.z
+
+  // A ramp is a plate pitched about +y; everything else spawns level.
+  const pitch = ((args.pitchDeg ?? (spec.id === 'ramp' ? -9 : 0)) * Math.PI) / 360
+  qpos[adr] = x
+  qpos[adr + 1] = y
+  qpos[adr + 2] = z
+  qpos[adr + 3] = Math.cos(pitch)
+  qpos[adr + 4] = 0
+  qpos[adr + 5] = Math.sin(pitch)
+  qpos[adr + 6] = 0
+
+  // Zero its velocity too, or a re-spawned prop keeps whatever it was doing.
+  const vadr = s.model.jnt_dofadr[s.mj.mj_name2id(s.model, s.mj.mjtObj.mjOBJ_JOINT.value, `prop_${spec.id}_free`)]
+  for (let i = 0; i < 6; i++) s.data.qvel[vadr + i] = 0
+  s.mj.mj_forward(s.model, s.data)
+
+  const spawned = [...new Set([...useStudio.getState().spawnedProps, spec.id])]
+  useStudio.getState().set({ spawnedProps: spawned })
+  return { ok: true, spawned: spec.id, at: [+x.toFixed(3), +y.toFixed(3), +z.toFixed(3)] }
+}
+
+export function clearProps(id?: string): Result<{ cleared: string[] }> {
+  const s = requireSim()
+  if (isErr(s)) return s
+  const targets = id ? PROPS.filter((p) => p.id === id) : PROPS
+  if (id && targets.length === 0) {
+    return { ok: false, reason: `Unknown prop "${id}".`, suggestion: `Valid: ${PROPS.map((p) => p.id).join(', ')}` }
+  }
+  for (const spec of targets) {
+    const adr = propJointAddress(s, spec.id)
+    if (adr < 0) continue
+    s.data.qpos[adr] = PARK_X
+    s.data.qpos[adr + 1] = 0
+    s.data.qpos[adr + 2] = PARK_Z
+    s.data.qpos[adr + 3] = 1
+    s.data.qpos[adr + 4] = 0
+    s.data.qpos[adr + 5] = 0
+    s.data.qpos[adr + 6] = 0
+    const vadr = s.model.jnt_dofadr[s.mj.mj_name2id(s.model, s.mj.mjtObj.mjOBJ_JOINT.value, `prop_${spec.id}_free`)]
+    for (let i = 0; i < 6; i++) s.data.qvel[vadr + i] = 0
+  }
+  s.mj.mj_forward(s.model, s.data)
+  const remaining = id
+    ? useStudio.getState().spawnedProps.filter((p) => p !== id)
+    : []
+  useStudio.getState().set({ spawnedProps: remaining })
+  return { ok: true, cleared: targets.map((t) => t.id) }
 }

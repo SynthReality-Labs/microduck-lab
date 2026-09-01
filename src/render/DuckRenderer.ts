@@ -89,9 +89,22 @@ export class DuckRenderer {
 
   private buildDuck(): void {
     for (const g of this.sim.visualGeoms()) {
-      const geom = new THREE.BufferGeometry()
-      geom.setAttribute('position', new THREE.BufferAttribute(g.positions, 3))
-      geom.setAttribute('normal', new THREE.BufferAttribute(g.normals, 3))
+      // MuJoCo sizes are half-extents; Three.js primitives take full extents.
+      const [sx, sy, sz] = g.size ?? [0, 0, 0]
+      let geom: THREE.BufferGeometry
+      if (g.kind === 'box') {
+        geom = new THREE.BoxGeometry(sx * 2, sy * 2, sz * 2)
+      } else if (g.kind === 'sphere') {
+        geom = new THREE.SphereGeometry(sx, 24, 16)
+      } else if (g.kind === 'capsule') {
+        geom = new THREE.CapsuleGeometry(sx, sy * 2, 6, 16)
+      } else if (g.kind === 'cylinder') {
+        geom = new THREE.CylinderGeometry(sx, sx, sy * 2, 20)
+      } else {
+        geom = new THREE.BufferGeometry()
+        geom.setAttribute('position', new THREE.BufferAttribute(g.positions!, 3))
+        geom.setAttribute('normal', new THREE.BufferAttribute(g.normals!, 3))
+      }
       const mesh = new THREE.Mesh(
         geom,
         new THREE.MeshStandardMaterial({
