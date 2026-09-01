@@ -7,8 +7,8 @@ import { DuckRenderer } from './render/DuckRenderer'
 import { useStudio } from './core/store'
 import {
   attachIntrospector, attachPolicyRunner, attachRenderer, attachSim, clearSelection,
-  getCommand, loadPolicy, renderReviewFrame, resetSim, selectJoint, setCommand, setPaused,
-  unloadPolicy,
+  clearHighlight, explainObservationSlice, getCommand, loadPolicy, renderReviewFrame, resetSim,
+  selectJoint, setCommand, setPaused, unloadPolicy, OBS_SLICES,
 } from './core/commands'
 import { Introspector } from './sim/introspect'
 import { LearnPanel } from './ui/LearnPanel'
@@ -29,6 +29,8 @@ export default function App() {
   const selection = useStudio((s) => s.selection)
   const commandVersion = useStudio((s) => s.commandVersion)
   const [policyError, setPolicyError] = useState<string | null>(null)
+  const [obsSlice, setObsSlice] = useState<string | null>(null)
+  const [obsInfo, setObsInfo] = useState<{ what: string; liveValues: number[] } | null>(null)
 
   // Slider values are DERIVED from the command the policy is actually reading,
   // not from local state — so a change made by the agent moves the slider, and
@@ -120,6 +122,14 @@ export default function App() {
           },
           onFrame: () => setSimTime(sim!.data.time),
         })
+
+        // Land on a standing duck, not a collapsed one. A biped cannot balance
+        // passively, so with no policy loaded the robot faceplants within
+        // seconds — which is every first visitor's first impression. alpha_walking
+        // is a velstand policy, so at zero command it simply stands, and
+        // "Walk forward" then works with nothing else to set up.
+        await loadPolicy('alpha_walking')
+        sim.reset('STAND')
 
         await registerWebMcpTools()
       } catch (e) {
@@ -244,6 +254,35 @@ export default function App() {
             alpha_walking is a <em>velstand</em> policy: below roughly 0.15&nbsp;m/s it stands
             in place rather than stepping.
           </p>
+        </section>
+
+        <section>
+          <h2>Observation · 61 values</h2>
+          <div className="obs-slices">
+            {Object.entries(OBS_SLICES).map(([key, s]) => (
+              <button
+                key={key}
+                className={obsSlice === key ? 'on' : ''}
+                onClick={() => {
+                  if (obsSlice === key) { setObsSlice(null); clearHighlight(); return }
+                  setObsSlice(key)
+                  const r = explainObservationSlice(key)
+                  setObsInfo(r.ok ? r : null)
+                }}
+              >
+                {s.label} <em>{s.to - s.from}</em>
+              </button>
+            ))}
+          </div>
+          {obsInfo && (
+            <>
+              <p className="hint">{obsInfo.what}</p>
+              <p className="obs-vals">
+                [{obsInfo.liveValues.slice(0, 8).map((v) => v.toFixed(2)).join(', ')}
+                {obsInfo.liveValues.length > 8 ? ', …' : ''}]
+              </p>
+            </>
+          )}
         </section>
 
         <section>

@@ -123,3 +123,10 @@ select { width: 100%; background: #1e2731; color: var(--text); border: 1px solid
 .tl-head-marker { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .9; }
 .ranking li.clickable { cursor: pointer; border-radius: 4px; }
 .ranking li.clickable:hover { background: #1b232b; }
+
+.obs-slices { display: flex; flex-wrap: wrap; gap: 4px; }
+.obs-slices button { font-size: 11px; padding: 3px 7px; }
+.obs-slices button.on { border-color: var(--accent); color: var(--accent); }
+.obs-slices button em { font-style: normal; color: var(--dim); margin-left: 3px; }
+.obs-vals { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px;
+  color: var(--accent); margin: 6px 0 0; word-break: break-all; }

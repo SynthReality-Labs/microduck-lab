@@ -842,3 +842,76 @@ export function renderReviewFrame(): void {
     else useStudio.getState().set({ review: { ...r, frame: next } })
   }
 }
+
+// ── Observation anatomy: the 61-D vector, shown on the robot ─────────────────
+
+export const OBS_SLICES = {
+  gyro: { from: OBS.gyro, to: OBS.gravity, label: 'Gyroscope', joints: [] as string[],
+    what: 'Trunk angular velocity in the trunk frame, rad/s. How fast the body is rotating.' },
+  gravity: { from: OBS.gravity, to: OBS.jointPos, label: 'Projected gravity', joints: [] as string[],
+    what: 'The gravity direction expressed in the trunk frame, as a unit vector. This is how the policy knows which way is up: (0,0,-1) is perfectly upright.' },
+  joint_positions: { from: OBS.jointPos, to: OBS.jointVel, label: 'Joint positions', joints: [...POLICY_JOINT_NAMES],
+    what: 'Where each of the 14 actuated joints currently is — RELATIVE TO THE HOME POSE, not absolute. A joint at its home angle reads zero.' },
+  joint_velocities: { from: OBS.jointVel, to: OBS.lastAction, label: 'Joint velocities', joints: [...POLICY_JOINT_NAMES],
+    what: 'How fast each of those 14 joints is moving, rad/s.' },
+  last_action: { from: OBS.lastAction, to: OBS.command, label: 'Previous action', joints: [...POLICY_JOINT_NAMES],
+    what: "The policy's own output from the previous control step, fed back in. This is what lets it produce smooth motion rather than reacting from scratch each tick." },
+  command: { from: OBS.command, to: OBS_LEN, label: 'Command', joints: [] as string[],
+    what: 'What the robot is being asked to do: velocity (3), head pose (4), body pose (6). Body x, y and yaw are always zero — they were unbound during training.' },
+} as const
+
+export type ObsSliceKey = keyof typeof OBS_SLICES
+
+/**
+ * Explain one block of the observation vector, and light up the joints it
+ * covers.
+ *
+ * The point of Learn mode: the 61-D vector is not described, it is shown on the
+ * robot the user is already looking at.
+ */
+export function explainObservationSlice(key: string): Result<{
+  slice: string
+  label: string
+  indices: [number, number]
+  width: number
+  what: string
+  liveValues: number[]
+  joints: string[]
+}> {
+  const slice = OBS_SLICES[key as ObsSliceKey]
+  if (!slice) {
+    return {
+      ok: false,
+      reason: `Unknown observation slice "${key}".`,
+      suggestion: `Valid slices: ${Object.keys(OBS_SLICES).join(', ')}`,
+    }
+  }
+  const p = requirePolicyRunner()
+  if (isErr(p)) return p
+  const i = requireIntrospector()
+  if (isErr(i)) return i
+
+  // Rebuild so the numbers are this frame's, not the last inference's.
+  const obs = p.buildObservation()
+  const live = Array.from(obs.slice(slice.from, slice.to)).map((v) => +v.toFixed(4))
+
+  const geoms = slice.joints.flatMap((n) => {
+    const jid = i.jointByName(n)
+    if (jid < 0) return []
+    const info = i.jointInfo(jid)
+    return info ? i.geomsOfBody(info.bodyId) : []
+  })
+  renderer?.setHighlight(geoms)
+  useStudio.getState().set({ highlight: [...slice.joints] })
+
+  return {
+    ok: true,
+    slice: key,
+    label: slice.label,
+    indices: [slice.from, slice.to],
+    width: slice.to - slice.from,
+    what: slice.what,
+    liveValues: live,
+    joints: [...slice.joints],
+  }
+}

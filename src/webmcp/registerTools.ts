@@ -292,6 +292,27 @@ const tools: Tool[] = [
     inputSchema: NO_ARGS,
     execute: () => core.scoreRollouts(),
   },
+  {
+    name: 'explain_observation_slice',
+    title: 'Explain part of the observation',
+    description:
+      'Explain one block of the 61-dimensional observation vector, return its LIVE values from this ' +
+      'frame, and highlight the joints it covers on the robot. Use when the user asks what the ' +
+      'policy sees, or what a part of the observation means — it lands the explanation on the robot ' +
+      'rather than in the chat.',
+    inputSchema: obj(
+      {
+        slice: {
+          type: 'string',
+          enum: ['gyro', 'gravity', 'joint_positions', 'joint_velocities', 'last_action', 'command'],
+          description: 'Which block of the observation to explain.',
+        },
+      },
+      ['slice'],
+    ),
+    execute: (a: { slice: string }) => core.explainObservationSlice(a?.slice),
+  },
+
   // ── Rollout review: the timeline the human drags on ────────────────────────
   {
     name: 'open_rollout',
