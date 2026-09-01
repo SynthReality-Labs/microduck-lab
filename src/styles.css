@@ -72,3 +72,8 @@ select { width: 100%; background: #1e2731; color: var(--text); border: 1px solid
 .slider em { font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums;
   font-size: 11px; text-align: right; }
 .slider input { width: 100%; accent-color: var(--accent); }
+
+.tools.probe { margin: 8px 0; font-size: 10.5px; }
+.tools.probe li::before { content: ""; }
+.tools.probe li.yes { color: var(--ok); }
+.tools.probe li.no { color: #5c6873; }

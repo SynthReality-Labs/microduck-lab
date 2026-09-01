@@ -98,15 +98,7 @@ function findModelContext(): { ctx: ModelContext | null; surface: 'document' | '
   return { ctx: null, surface: 'none' }
 }
 
-export async function registerWebMcpTools(): Promise<void> {
-  const { ctx, surface } = findModelContext()
-  const store = useStudio.getState()
-
-  if (!ctx) {
-    store.set({ webmcp: { available: false, surface: 'none', registered: [] } })
-    return
-  }
-
+async function registerInto(ctx: ModelContext, surface: 'document' | 'navigator'): Promise<void> {
   const registered: string[] = []
   for (const tool of tools) {
     try {
@@ -116,8 +108,77 @@ export async function registerWebMcpTools(): Promise<void> {
       console.error(`[webmcp] failed to register ${tool.name}`, e)
     }
   }
+  useStudio.getState().set({
+    webmcp: { available: registered.length > 0, surface, registered },
+  })
+  console.info(`[webmcp] registered ${registered.length} tools on ${surface}.modelContext`)
+}
 
-  store.set({ webmcp: { available: registered.length > 0, surface, registered } })
+/** Try once, right now. Returns true if tools got registered. */
+export async function tryRegisterWebMcpTools(): Promise<boolean> {
+  const { ctx, surface } = findModelContext()
+  if (!ctx || surface === 'none') return false
+  await registerInto(ctx, surface)
+  return true
+}
+
+let watching = false
+
+/**
+ * Register site tools, and keep looking if the surface is not there yet.
+ *
+ * `document.modelContext` is not guaranteed to exist at page-load time — an
+ * agent-capable browser may inject it late, or only once an agent attaches to
+ * the tab. A one-shot probe at boot would then report "not detected" forever on
+ * a browser that does in fact support WebMCP, which is exactly the failure that
+ * is indistinguishable from the feature being absent.
+ *
+ * So: probe immediately, then poll, then keep a slow heartbeat going. Cheap
+ * (a property read), and it means the badge becomes correct on its own.
+ */
+export async function registerWebMcpTools(): Promise<void> {
+  useStudio.getState().set({ webmcp: { available: false, surface: 'none', registered: [] } })
+
+  if (await tryRegisterWebMcpTools()) return
+  if (watching) return
+  watching = true
+
+  let delay = 250
+  const attempt = async () => {
+    if (await tryRegisterWebMcpTools()) {
+      watching = false
+      return
+    }
+    delay = Math.min(delay * 1.6, 5000)
+    setTimeout(() => void attempt(), delay)
+  }
+  setTimeout(() => void attempt(), delay)
+
+  // Attaching an agent often coincides with the tab being focused.
+  addEventListener('focus', () => void tryRegisterWebMcpTools())
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) void tryRegisterWebMcpTools()
+  })
 }
 
 export const TOOL_NAMES = tools.map((t) => t.name)
+
+/**
+ * What agent-related surfaces this browser actually exposes.
+ *
+ * Reported in the dev panel so "not detected" can be distinguished from "not
+ * injected yet" — and so a failing gate produces evidence rather than a shrug.
+ */
+export function probeAgentSurfaces(): Record<string, boolean> {
+  const d = document as unknown as Record<string, unknown>
+  const n = navigator as unknown as Record<string, unknown>
+  const w = globalThis as unknown as Record<string, unknown>
+  return {
+    'document.modelContext': typeof d.modelContext === 'object' && d.modelContext !== null,
+    'navigator.modelContext': typeof n.modelContext === 'object' && n.modelContext !== null,
+    'navigator.agent': typeof n.agent === 'object' && n.agent !== null,
+    'window.agent': typeof w.agent === 'object' && w.agent !== null,
+    'window.ai': typeof w.ai === 'object' && w.ai !== null,
+    isSecureContext: Boolean(w.isSecureContext),
+  }
+}

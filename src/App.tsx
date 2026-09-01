@@ -8,7 +8,7 @@ import { useStudio } from './core/store'
 import {
   attachPolicyRunner, attachSim, loadPolicy, resetSim, setCommand, setPaused, unloadPolicy,
 } from './core/commands'
-import { registerWebMcpTools } from './webmcp/registerTools'
+import { probeAgentSurfaces, registerWebMcpTools, tryRegisterWebMcpTools } from './webmcp/registerTools'
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -226,10 +226,18 @@ export default function App() {
               {webmcp.registered.map((t) => <li key={t}>{t}</li>)}
             </ul>
           ) : (
-            <p style={{ fontSize: 12, color: 'var(--dim)', margin: 0 }}>
-              No <code>document.modelContext</code> on this page. MicroDuck Lab works fully
-              without an agent — open it in ChatGPT's in-app browser to enable site tools.
-            </p>
+            <>
+              <p style={{ fontSize: 12, color: 'var(--dim)', margin: 0 }}>
+                No <code>document.modelContext</code> yet. MicroDuck Lab works fully without an
+                agent; site tools appear automatically once the surface exists.
+              </p>
+              <ul className="tools probe">
+                {Object.entries(probeAgentSurfaces()).map(([k, v]) => (
+                  <li key={k} className={v ? 'yes' : 'no'}>{v ? '✓' : '✗'} {k}</li>
+                ))}
+              </ul>
+              <button onClick={() => void tryRegisterWebMcpTools()}>Retry detection</button>
+            </>
           )}
         </section>
 
