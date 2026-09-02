@@ -8,9 +8,9 @@ import { useStudio } from './core/store'
 import {
   attachIntrospector, attachPolicyRunner, attachRenderer, attachSim, clearSelection,
   applyDisturbance, clearHighlight, clearProps, explainObservationSlice, getCommand, loadPolicy,
-  dismissBubble, onPush, react, renderReviewFrame, resetSim, runBubbleAction, selectJoint,
-  setAutoWake, setCommand, setPaused, spawnProp, tickChatter, unloadPolicy, updateFallState,
-  OBS_SLICES,
+  bubbleRemaining, dismissBubble, holdBubble, onPush, pinBubble, react, releaseBubble,
+  renderReviewFrame, resetSim, runBubbleAction, selectJoint, setAutoWake, setCommand, setPaused,
+  spawnProp, tickChatter, unloadPolicy, updateFallState, OBS_SLICES,
 } from './core/commands'
 import { PROPS } from './sim/props'
 import { Introspector } from './sim/introspect'
@@ -40,6 +40,7 @@ export default function App() {
   const bubble = useStudio((s) => s.bubble)
   const autoWake = useStudio((s) => s.autoWake)
   const [copied, setCopied] = useState(false)
+  const [lifeLeft, setLifeLeft] = useState<number | null>(null)
   const [obsSlice, setObsSlice] = useState<string | null>(null)
   const [obsInfo, setObsInfo] = useState<{ what: string; liveValues: number[] } | null>(null)
 
@@ -147,7 +148,13 @@ export default function App() {
             tickChatter()
             // Only project while a bubble is up: doing it every frame otherwise
             // would be a pointless per-frame React update.
-            if (useStudio.getState().bubble) setMouth(renderer?.mouthScreenPosition() ?? null)
+            if (useStudio.getState().bubble) {
+              setMouth(renderer?.mouthScreenPosition() ?? null)
+              // Quantised so the countdown redraws ~20 times over its life
+              // rather than 60 times a second.
+              const r = bubbleRemaining()
+              setLifeLeft(r === null ? null : Math.round(r * 20) / 20)
+            }
           },
         })
 
@@ -198,7 +205,17 @@ export default function App() {
           <p>Learn reinforcement learning by teaching robots</p>
         </div>
         {bubble && mouth && (
-          <div className={`bubble ${bubble.kind}`} style={{ left: mouth.x, top: mouth.y }} key={bubble.id}>
+          <div
+            className={`bubble ${bubble.kind}`}
+            style={{ left: mouth.x, top: mouth.y }}
+            key={bubble.id}
+            // Hovering pauses the countdown; clicking pins it outright. A timer
+            // you cannot stop while reading is the thing that made the old one
+            // feel hostile.
+            onMouseEnter={() => holdBubble()}
+            onMouseLeave={() => releaseBubble()}
+            onClick={() => pinBubble()}
+          >
             <button className="bubble-x" onClick={() => dismissBubble()} title="Dismiss">×</button>
             <p>{bubble.text}</p>
 
@@ -220,6 +237,12 @@ export default function App() {
               <button className="bubble-do" onClick={() => void runBubbleAction(bubble.action!.id)}>
                 {bubble.action.label}
               </button>
+            )}
+
+            {lifeLeft !== null && !bubble.persistent && (
+              <div className="bubble-life" aria-hidden>
+                <i style={{ width: `${lifeLeft * 100}%` }} />
+              </div>
             )}
 
             {bubble.kind === 'fall' && (

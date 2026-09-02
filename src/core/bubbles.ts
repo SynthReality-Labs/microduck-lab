@@ -24,13 +24,63 @@ export interface ActiveBubble {
 const MIN_GAP_MS = 14_000
 const IDLE_AFTER_MS = 22_000
 const REACT_COOLDOWN_MS = 30_000
-const TRANSIENT_MS = 7_000
+
+/**
+ * How long a transient bubble lives.
+ *
+ * Was 7 s, which is enough to notice a bubble and not enough to read it, decide,
+ * and click — so the affordance kept expiring mid-decision. Long enough to act
+ * on, and the countdown makes the remaining time legible instead of a surprise.
+ */
+const TRANSIENT_MS = 14_000
 
 let nextId = 1
 let lastShownAt = 0
 let lastInteractionAt = Date.now()
-let hideTimer: ReturnType<typeof setTimeout> | null = null
 const lastByKind = new Map<string, number>()
+
+/**
+ * Expiry is a deadline checked each frame rather than a setTimeout, so it can
+ * be paused. A timer the user cannot stop is the reason the old one felt hostile.
+ */
+let expiresAt = 0
+let holds = 0
+let pausedRemaining = 0
+
+/** Freeze the countdown — hovering, or pinning by clicking. */
+export function holdBubble(): void {
+  if (!expiresAt) return
+  if (holds === 0) pausedRemaining = Math.max(0, expiresAt - Date.now())
+  holds++
+}
+
+export function releaseBubble(): void {
+  if (holds === 0) return
+  holds--
+  if (holds === 0 && pausedRemaining > 0) expiresAt = Date.now() + pausedRemaining
+}
+
+/** Pin until explicitly dismissed. */
+export function pinBubble(): void {
+  expiresAt = 0
+  holds = 0
+  pausedRemaining = 0
+  const b = useStudio.getState().bubble
+  if (b) useStudio.getState().set({ bubble: { ...b, persistent: true } })
+}
+
+/** Fraction of life remaining, 1 to 0. Returns null when nothing is counting down. */
+export function bubbleRemaining(): number | null {
+  if (!expiresAt) return null
+  const left = holds > 0 ? pausedRemaining : expiresAt - Date.now()
+  return Math.max(0, Math.min(1, left / TRANSIENT_MS))
+}
+
+/** Called every frame; retires the bubble when its deadline passes. */
+export function tickBubble(): void {
+  if (!expiresAt || holds > 0) return
+  if (Date.now() >= expiresAt) dismissBubble()
+}
 
 /** Any deliberate user or agent action postpones idle chatter. */
 export function noteInteraction(): void {
@@ -47,19 +97,16 @@ function show(content: BubbleContent, kind: BubbleKind, persistent: boolean): vo
     persistent,
   }
   lastShownAt = Date.now()
+  holds = 0
+  pausedRemaining = 0
+  expiresAt = persistent ? 0 : Date.now() + TRANSIENT_MS
   useStudio.getState().set({ bubble })
-
-  if (hideTimer) clearTimeout(hideTimer)
-  if (!persistent) {
-    hideTimer = setTimeout(() => {
-      const cur = useStudio.getState().bubble
-      if (cur?.id === bubble.id) useStudio.getState().set({ bubble: null })
-    }, TRANSIENT_MS)
-  }
 }
 
 export function dismissBubble(): void {
-  if (hideTimer) clearTimeout(hideTimer)
+  expiresAt = 0
+  holds = 0
+  pausedRemaining = 0
   useStudio.getState().set({ bubble: null })
 }
 

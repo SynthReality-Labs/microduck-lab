@@ -16,7 +16,7 @@ import { evaluatePolicy, type EvalReport } from '../sim/evaluate'
 import { SCENARIOS, applyScenario, type Scenario, type ScenarioHandle } from '../sim/scenarios'
 import { PARK_X, PARK_Z, PROPS } from '../sim/props'
 import { LESSONS, type Lesson, type LessonStep } from '../knowledge/lessons'
-import { dismissBubble, maybeIdle, noteInteraction, react, reactToFall } from './bubbles'
+import { dismissBubble, maybeIdle, noteInteraction, react, reactToFall, tickBubble } from './bubbles'
 import type { ActionId } from '../knowledge/chatter'
 import {
   DEFAULT_RECIPE, TASKS, bundleFiles, composeJob, type Recipe, type Target,
@@ -1640,7 +1640,10 @@ export async function runBubbleAction(id: ActionId): Promise<void> {
 
 /** Called from the render loop; internally rate-limited. */
 export function tickChatter(): void {
+  tickBubble()
   maybeIdle()
 }
 
-export { dismissBubble, noteInteraction, react } from './bubbles'
+export {
+  bubbleRemaining, dismissBubble, holdBubble, noteInteraction, pinBubble, react, releaseBubble,
+} from './bubbles'
