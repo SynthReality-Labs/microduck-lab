@@ -1,5 +1,9 @@
 import loadMujoco from '@mujoco/mujoco'
 import type { MainModule } from '@mujoco/mujoco'
+// Let the bundler own the binary and hand us its hashed URL. Keeping a copy in
+// public/ as well shipped the same 9.7 MB twice: once as the file locateFile
+// pointed at, and once emitted from mujoco.js's own internal reference.
+import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url'
 import { MODEL_XMLS, MODEL_MESHES } from './assetManifest'
 import { sceneWithProps } from './props'
 
@@ -14,12 +18,15 @@ export const WORK_DIR = '/work'
 
 let modulePromise: Promise<MainModule> | null = null
 
-/** Loads the WASM module once. `locateFile` pins the binary to a stable public
- *  path so dev and production resolve identically. */
+/**
+ * Loads the WASM module once.
+ *
+ * `locateFile` points at the bundler's own emitted asset, so there is exactly
+ * one copy of the binary and it gets a content hash for caching.
+ */
 export function getMujoco(): Promise<MainModule> {
   modulePromise ??= loadMujoco({
-    locateFile: (path: string) =>
-      path.endsWith('.wasm') ? `${import.meta.env.BASE_URL}mujoco.wasm` : path,
+    locateFile: (path: string) => (path.endsWith('.wasm') ? mujocoWasmUrl : path),
   } as unknown as undefined)
   return modulePromise
 }
