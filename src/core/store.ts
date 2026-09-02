@@ -38,6 +38,9 @@ interface StudioState {
   environment: { slopeDeg: number; friction: number }
   spawnedProps: string[]
   activeLesson: string | null
+  fallen: boolean
+  fallQuip: string
+  autoWake: boolean
   completedLessons: string[]
   webmcp: { available: boolean; surface: 'document' | 'navigator' | 'none'; registered: string[] }
   toolLog: ToolCallLogEntry[]
@@ -72,6 +75,9 @@ export const useStudio = create<StudioState>((set) => ({
   environment: { slopeDeg: 0, friction: 1.0 },
   spawnedProps: [],
   activeLesson: null,
+  fallen: false,
+  fallQuip: '',
+  autoWake: false,
   completedLessons: [],
   webmcp: { available: false, surface: 'none', registered: [] },
   toolLog: [],

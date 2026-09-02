@@ -444,6 +444,26 @@ const tools: Tool[] = [
     execute: (a: { url: string; name?: string }) => core.importPolicy(a ?? ({} as never)),
   },
 
+  {
+    name: 'wake_duck',
+    title: 'Help the robot up',
+    description:
+      'Lift the robot back to its standing pose after a fall. Worth knowing: this is a hand up, not a ' +
+      'recovery — none of the nine published policies can stand up off the floor, because getting up ' +
+      'is a separate behaviour that has to be trained (Mjlab-StandUp-Flat-MicroDuck).',
+    inputSchema: NO_ARGS,
+    execute: () => core.wakeDuck(),
+  },
+  {
+    name: 'set_auto_wake',
+    title: 'Auto-recover on falls',
+    description:
+      'When on, the robot is stood back up automatically half a second after each fall. Useful when ' +
+      'running experiments where you do not want to keep picking it up.',
+    inputSchema: obj({ enabled: { type: 'boolean', description: 'true to stand it up automatically.' } }, ['enabled']),
+    execute: (a: { enabled: boolean }) => core.setAutoWake(Boolean(a?.enabled)),
+  },
+
   // ── Teaching ───────────────────────────────────────────────────────────────
   {
     name: 'get_lessons',

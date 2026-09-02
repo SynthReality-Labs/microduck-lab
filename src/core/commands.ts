@@ -1534,3 +1534,90 @@ export async function startLesson(id: string): Promise<Result<{ lesson: unknown 
     },
   }
 }
+
+// ── Falling over, and getting helped up ─────────────────────────────────────
+
+/**
+ * Things the duck says when it is on the floor.
+ *
+ * The last one is the funniest because it is true: Pollen publish nine policies
+ * and not one of them gets up. A joke that teaches something is worth more than
+ * a joke that does not.
+ */
+const FALL_QUIPS = [
+  'Well. That happened.',
+  'I meant to do that.',
+  'Ground: 1. Me: 0.',
+  'A little help down here?',
+  'This is fine. This is a valid pose.',
+  'I have fallen and I cannot get up — there is no get-up policy.',
+  'Gravity remains undefeated.',
+]
+
+let fallenSince = 0
+let quip = FALL_QUIPS[0]
+
+/**
+ * Watch for the robot going down.
+ *
+ * Called every frame, but only writes to the store on a transition — a biped
+ * wobbles, and a per-frame write would rerender the whole panel sixty times a
+ * second for no reason.
+ *
+ * A fall has to persist for half a second before it counts. Uprightness dips
+ * below the threshold briefly during a hard recovery, and a bubble that flashes
+ * up mid-stumble reads as a bug rather than a joke.
+ */
+export function updateFallState(): void {
+  const s = sim
+  if (!s) return
+  const st = useStudio.getState()
+  if (st.review) return // reviewing a recording, not driving the robot
+
+  const trunk = s.mj.mj_name2id(s.model, s.mj.mjtObj.mjOBJ_BODY.value, 'trunk_base')
+  if (trunk < 0) return
+  const upright = s.data.xmat[trunk * 9 + 8]
+  const height = s.data.qpos[2]
+  const down = upright < 0.4 || height < 0.06
+
+  const now = performance.now()
+  if (down) {
+    if (fallenSince === 0) fallenSince = now
+    if (!st.fallen && now - fallenSince > 500) {
+      quip = FALL_QUIPS[Math.floor(Math.random() * FALL_QUIPS.length)]
+      useStudio.getState().set({ fallen: true, fallQuip: quip })
+      if (st.autoWake) void wakeDuck()
+    }
+  } else {
+    fallenSince = 0
+    if (st.fallen && upright > 0.7) useStudio.getState().set({ fallen: false })
+  }
+}
+
+/**
+ * Help the duck back onto its feet.
+ *
+ * Resets to the STAND keyframe rather than running a recovery policy, because
+ * none of the nine published policies can get up off the floor — the studio is
+ * honest about lifting it rather than pretending it recovered on its own.
+ */
+export async function wakeDuck(): Promise<Result<{ woken: true; note: string }>> {
+  const s = requireSim()
+  if (isErr(s)) return s
+  s.reset('STAND')
+  fallenSince = 0
+  useStudio.getState().set({ fallen: false })
+  return {
+    ok: true,
+    woken: true,
+    note:
+      'Lifted back to the home pose. None of the published policies can stand up from the floor, ' +
+      'so this is a hand up rather than a recovery — training a get-up behaviour is its own task ' +
+      '(Mjlab-StandUp-Flat-MicroDuck).',
+  }
+}
+
+export function setAutoWake(on: boolean): Result<{ autoWake: boolean }> {
+  useStudio.getState().set({ autoWake: on })
+  return { ok: true, autoWake: on }
+}

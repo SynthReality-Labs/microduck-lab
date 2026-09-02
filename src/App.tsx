@@ -8,8 +8,8 @@ import { useStudio } from './core/store'
 import {
   attachIntrospector, attachPolicyRunner, attachRenderer, attachSim, clearSelection,
   applyDisturbance, clearHighlight, clearProps, explainObservationSlice, getCommand, loadPolicy,
-  onPush, renderReviewFrame, resetSim, selectJoint, setCommand, setPaused, spawnProp,
-  unloadPolicy, OBS_SLICES,
+  onPush, renderReviewFrame, resetSim, selectJoint, setAutoWake, setCommand, setPaused, spawnProp,
+  unloadPolicy, updateFallState, wakeDuck, OBS_SLICES,
 } from './core/commands'
 import { PROPS } from './sim/props'
 import { Introspector } from './sim/introspect'
@@ -35,6 +35,10 @@ export default function App() {
   const commandVersion = useStudio((s) => s.commandVersion)
   const [policyError, setPolicyError] = useState<string | null>(null)
   const [charge, setCharge] = useState(0)
+  const [mouth, setMouth] = useState<{ x: number; y: number } | null>(null)
+  const fallen = useStudio((s) => s.fallen)
+  const fallQuip = useStudio((s) => s.fallQuip)
+  const autoWake = useStudio((s) => s.autoWake)
   const [obsSlice, setObsSlice] = useState<string | null>(null)
   const [obsInfo, setObsInfo] = useState<{ what: string; liveValues: number[] } | null>(null)
 
@@ -133,7 +137,13 @@ export default function App() {
             if (st.review) renderReviewFrame()
             else if (!st.paused) void runner.tick(dt)
           },
-          onFrame: () => setSimTime(sim!.data.time),
+          onFrame: () => {
+            setSimTime(sim!.data.time)
+            updateFallState()
+            // Only track the mouth while the bubble is up: projecting every
+            // frame otherwise would be a pointless per-frame React update.
+            if (useStudio.getState().fallen) setMouth(renderer?.mouthScreenPosition() ?? null)
+          },
         })
 
         // Land on a standing duck, not a collapsed one. A biped cannot balance
@@ -182,6 +192,16 @@ export default function App() {
           <h1>MicroDuck Lab</h1>
           <p>Learn reinforcement learning by teaching robots</p>
         </div>
+        {fallen && mouth && (
+          <div className="bubble" style={{ left: mouth.x, top: mouth.y }}>
+            <p>{fallQuip}</p>
+            <button onClick={() => void wakeDuck()}>Help it up</button>
+            <label className="auto-wake">
+              <input type="checkbox" checked={autoWake} onChange={(e) => setAutoWake(e.target.checked)} />
+              auto
+            </label>
+          </div>
+        )}
         {charge > 0 && (
           <div className="charge">
             <div className="charge-bar"><i style={{ width: `${charge * 100}%` }} /></div>

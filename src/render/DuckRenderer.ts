@@ -49,6 +49,7 @@ export class DuckRenderer {
   /** Smoothed point the camera orbits, so a walking duck stays in frame. */
   private readonly focus = new THREE.Vector3(0, 0, 0.1)
   private trunkGeomId = -1
+  private mouthBodyId = -1
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -100,6 +101,12 @@ export class DuckRenderer {
     // meshes already use.
     const first = this.meshes[0]
     this.trunkGeomId = first ? first.geomId : -1
+    // The model has an actual mouth body, which is where a speech bubble belongs.
+    const { mj, model } = this.sim
+    for (const name of ['jaw_soft', 'neck_pitch', 'neck', 'trunk_base']) {
+      const id = mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY.value, name)
+      if (id >= 0) { this.mouthBodyId = id; break }
+    }
     this.resize()
   }
 
@@ -249,6 +256,22 @@ export class DuckRenderer {
       mesh.matrix.copy(this.mat)
       mesh.matrixWorld.copy(this.mat)
     }
+  }
+
+  /**
+   * Where the duck's mouth is on screen, in CSS pixels.
+   *
+   * Returns null when it is behind the camera, so a bubble never gets pinned to
+   * a point the viewer cannot see.
+   */
+  mouthScreenPosition(): { x: number; y: number } | null {
+    if (this.mouthBodyId < 0) return null
+    const xpos = this.sim.data.xpos
+    const p = this.mouthBodyId * 3
+    const v = new THREE.Vector3(xpos[p], xpos[p + 1], xpos[p + 2] + 0.03).project(this.camera)
+    if (v.z > 1) return null
+    const r = this.canvas.getBoundingClientRect()
+    return { x: (v.x * 0.5 + 0.5) * r.width, y: (-v.y * 0.5 + 0.5) * r.height }
   }
 
   resize(): void {
