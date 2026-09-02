@@ -1,0 +1,17 @@
+# Bundler output is content-hashed, so it can be cached forever.
+/assets/index-*
+  Cache-Control: public, max-age=31536000, immutable
+/assets/mujoco-*.wasm
+  Cache-Control: public, max-age=31536000, immutable
+/assets/ort-wasm-*.wasm
+  Cache-Control: public, max-age=31536000, immutable
+
+# Vendored robot assets are NOT hashed — a redeploy reuses the same paths, so a
+# long cache would serve a stale model. An hour is plenty and still spares
+# repeat visitors the 25 MB of meshes.
+/assets/microduck/*
+  Cache-Control: public, max-age=3600
+/assets/policies/*
+  Cache-Control: public, max-age=3600
+/assets/knowledge/*
+  Cache-Control: public, max-age=3600
