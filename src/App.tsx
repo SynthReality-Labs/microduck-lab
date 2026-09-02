@@ -17,6 +17,7 @@ import { LearnPanel } from './ui/LearnPanel'
 import { Timeline } from './ui/Timeline'
 import { EvalPanel } from './ui/EvalPanel'
 import { EscalatePanel } from './ui/EscalatePanel'
+import { LessonsPanel } from './ui/LessonsPanel'
 import { probeAgentSurfaces, registerWebMcpTools, tryRegisterWebMcpTools } from './webmcp/registerTools'
 
 export default function App() {
@@ -274,6 +275,8 @@ export default function App() {
             in place rather than stepping.
           </p>
         </section>
+
+        <LessonsPanel />
 
         <section>
           <h2>Obstacles</h2>

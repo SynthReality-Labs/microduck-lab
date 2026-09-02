@@ -444,6 +444,39 @@ const tools: Tool[] = [
     execute: (a: { url: string; name?: string }) => core.importPolicy(a ?? ({} as never)),
   },
 
+  // ── Teaching ───────────────────────────────────────────────────────────────
+  {
+    name: 'get_lessons',
+    title: 'The guided RL path',
+    description:
+      'Six lessons that teach reinforcement learning through this robot: what the policy sees, what a ' +
+      'reward function is, reward hacking, when doing nothing wins, robustness, and escalating to real ' +
+      'training. Each one is a real action with a real outcome. Call this when the user says they are ' +
+      'new to RL, or asks where to start.',
+    inputSchema: NO_ARGS,
+    execute: () => core.getLessons(),
+  },
+  {
+    name: 'start_lesson',
+    title: 'Run a lesson',
+    description:
+      'Set the studio up for a lesson and run it — loading policies, recording rollouts, editing reward ' +
+      'weights or running an evaluation as that lesson needs. Returns what the user should now be ' +
+      'looking at and the question worth answering next. Use it to teach by doing rather than by ' +
+      'explaining: run the lesson, then answer what it surfaces.',
+    inputSchema: obj(
+      {
+        id: {
+          type: 'string',
+          enum: ['observations', 'reward', 'reward-hacking', 'attempt-tax', 'robustness', 'escalate'],
+          description: 'Which lesson to run.',
+        },
+      },
+      ['id'],
+    ),
+    execute: (a: { id: string }) => core.startLesson(a?.id),
+  },
+
   // ── Props: obstacles in the duck's path ────────────────────────────────────
   {
     name: 'list_props',

@@ -15,6 +15,7 @@ import { LIBRARY, recordEpisode } from '../sim/recorder'
 import { evaluatePolicy, type EvalReport } from '../sim/evaluate'
 import { SCENARIOS, applyScenario, type Scenario, type ScenarioHandle } from '../sim/scenarios'
 import { PARK_X, PARK_Z, PROPS } from '../sim/props'
+import { LESSONS, type Lesson, type LessonStep } from '../knowledge/lessons'
 import {
   DEFAULT_RECIPE, TASKS, bundleFiles, composeJob, type Recipe, type Target,
 } from '../sim/recipe'
@@ -1469,4 +1470,67 @@ export function clearProps(id?: string): Result<{ cleared: string[] }> {
     : []
   useStudio.getState().set({ spawnedProps: remaining })
   return { ok: true, cleared: targets.map((t) => t.id) }
+}
+
+// ── Lessons ─────────────────────────────────────────────────────────────────
+
+export function getLessons(): Result<{ lessons: unknown[]; completed: string[] }> {
+  return {
+    ok: true,
+    lessons: LESSONS.map((l, i) => ({
+      number: i + 1, id: l.id, title: l.title, why: l.why, expect: l.expect, ask: l.ask,
+    })),
+    completed: useStudio.getState().completedLessons,
+  }
+}
+
+async function runStep(step: LessonStep): Promise<void> {
+  switch (step.kind) {
+    case 'loadPolicy': await loadPolicy(step.id); break
+    case 'setCommand': setCommand(step); break
+    case 'reset': resetSim(step.pose ?? 'STAND'); break
+    case 'observationSlice': explainObservationSlice(step.slice); break
+    case 'recordLibrary': if (rollouts.size === 0) await recordLibrary(); break
+    case 'resetObjective': resetObjective(); break
+    case 'setRewardWeight': setRewardWeight(step.term, step.weight); break
+    case 'runEval': await runEvalSuite({}); break
+    case 'setEnvironment': setEnvironment({ preset: step.preset }); break
+    case 'spawnProp': spawnProp({ id: step.id, ahead: step.ahead }); break
+    case 'clearProps': clearProps(); break
+    case 'wait': await new Promise((r) => setTimeout(r, step.ms)); break
+  }
+}
+
+/**
+ * Run a lesson: perform its actions, then hand back what to look at and what to
+ * ask the agent.
+ *
+ * The steps are the same core commands everything else uses, so a lesson cannot
+ * demonstrate behaviour the app does not really have.
+ */
+export async function startLesson(id: string): Promise<Result<{ lesson: unknown }>> {
+  const lesson: Lesson | undefined = LESSONS.find((l) => l.id === id)
+  if (!lesson) {
+    return {
+      ok: false,
+      reason: `Unknown lesson "${id}".`,
+      suggestion: `Valid lessons: ${LESSONS.map((l) => l.id).join(', ')}`,
+    }
+  }
+  useStudio.getState().set({ activeLesson: id })
+  try {
+    for (const step of lesson.steps) await runStep(step)
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) }
+  }
+  const completed = [...new Set([...useStudio.getState().completedLessons, id])]
+  useStudio.getState().set({ completedLessons: completed })
+  return {
+    ok: true,
+    lesson: {
+      id: lesson.id, title: lesson.title, why: lesson.why,
+      nowLookAt: lesson.expect,
+      suggestedQuestion: lesson.ask,
+    },
+  }
 }

@@ -160,3 +160,23 @@ pre.cmd {
 .charge-bar { width: 180px; height: 5px; background: #202a33; border-radius: 3px; overflow: hidden; }
 .charge-bar i { display: block; height: 100%; background: var(--accent); }
 .charge small { display: block; margin-top: 4px; font-size: 10.5px; color: var(--dim); }
+
+/* ── Guided lessons ──────────────────────────────────────────────────────── */
+.lessons h2 { display: flex; align-items: center; gap: 6px; }
+button.disclose { background: none; border: none; padding: 0 2px; color: var(--dim); font-size: 11px; }
+.lesson-list { list-style: none; margin: 4px 0 0; padding: 0; counter-reset: none; }
+.lesson-list li { padding: 6px 0; border-bottom: 1px solid #1d242b; }
+.lesson-list li:last-child { border-bottom: none; }
+.lesson-head { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 7px; }
+.lesson-head strong { font-size: 12px; font-weight: 550; }
+.lesson-head .num {
+  width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line);
+  display: grid; place-items: center; font-size: 10px; color: var(--dim);
+}
+.lesson-head .num.done { color: var(--ok); border-color: #1f4433; }
+.lesson-list .why { margin: 4px 0 0 25px; font-size: 11px; color: var(--dim); line-height: 1.45; }
+.lesson-result { margin: 7px 0 2px 25px; border-left: 2px solid var(--accent); padding-left: 8px; }
+.lesson-result .expect { margin: 0; font-size: 11px; line-height: 1.45; }
+.lesson-result .ask-label { margin: 6px 0 2px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--dim); }
+.lesson-result .ask { margin: 0; font-size: 11.5px; color: var(--accent); line-height: 1.4; }
