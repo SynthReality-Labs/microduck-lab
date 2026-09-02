@@ -365,7 +365,21 @@ export function clearHighlight(): Result<{ cleared: true }> {
 export function listJoints(): Result<{ joints: unknown[] }> {
   const i = requireIntrospector()
   if (isErr(i)) return i
-  return { ok: true, joints: i.allJoints() }
+  // Rounded and pruned. The raw records carry full float precision plus axis
+  // vectors and body ids, which more than doubled the payload without telling
+  // an agent anything it could act on. get_selected_joint still returns the
+  // full record for the one joint actually under discussion.
+  return {
+    ok: true,
+    joints: i.allJoints().map((j) => ({
+      name: j.name,
+      policySlot: j.policySlot,
+      position: +j.position.toFixed(3),
+      velocity: +j.velocity.toFixed(3),
+      fromHome: j.fromHome === null ? null : +j.fromHome.toFixed(3),
+      range: j.range ? [+j.range[0].toFixed(2), +j.range[1].toFixed(2)] : null,
+    })),
+  }
 }
 
 // ── Knowledge: what makes any agent a Microduck expert ───────────────────────
@@ -1485,8 +1499,11 @@ export function clearProps(id?: string): Result<{ cleared: string[] }> {
 export function getLessons(): Result<{ lessons: unknown[]; completed: string[] }> {
   return {
     ok: true,
+    // `expect` is deliberately omitted: start_lesson returns it when it is
+    // actually needed, and repeating six of them here tripled this payload for
+    // text the agent cannot use until a lesson is running.
     lessons: LESSONS.map((l, i) => ({
-      number: i + 1, id: l.id, title: l.title, why: l.why, expect: l.expect, ask: l.ask,
+      number: i + 1, id: l.id, title: l.title, why: l.why,
     })),
     completed: useStudio.getState().completedLessons,
   }

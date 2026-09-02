@@ -642,6 +642,35 @@ const tools: Tool[] = [
 ] as unknown as Tool[]
 
 /**
+ * Tools that cannot change any state.
+ *
+ * Chrome's tool-security guidance asks authors to mark these, so an agent can
+ * tell a safe lookup from a consequential action. Derived from an explicit list
+ * rather than a name prefix, because the prefix would lie: explain_observation_slice
+ * reads like a getter but highlights joints on the robot, and export_training_job
+ * triggers browser downloads.
+ */
+const READ_ONLY = new Set([
+  'get_microduck_spec', 'get_policy_contract', 'get_rl_playbook', 'explain_reward_term',
+  'get_studio_state', 'describe_robot', 'list_joints', 'list_policies', 'get_command',
+  'get_selected_joint', 'get_selected_robot', 'get_selected_timeline_range',
+  'list_rollouts', 'get_objective', 'score_rollouts', 'get_reward_breakdown',
+  'check_reward_signs', 'inspect_rollout', 'get_training_recipe', 'compose_training_job',
+  'get_lessons', 'list_props', 'get_environment', 'list_scenarios', 'get_eval_report',
+])
+
+/**
+ * Tools whose output carries text we did not author.
+ *
+ * get_rl_playbook returns Pollen Robotics' own markdown verbatim, and
+ * import_policy echoes a name and URL the user supplied. Both are data, not
+ * instructions, and an agent should treat them that way — this flag is the
+ * standard defence against indirect prompt injection.
+ */
+const UNTRUSTED_OUTPUT = new Set(['get_rl_playbook', 'explain_reward_term', 'import_policy'])
+
+
+/**
  * Wrap the callback so every agent call lands in the dev panel's log.
  *
  * The field name is not settled across sources: the challenge rules document
@@ -664,7 +693,16 @@ function instrument(tool: Tool): Tool {
       useStudio.getState().logToolCall({ at: Date.now(), tool: tool.name, args, result, ok })
       return result
   }
-  return { ...tool, execute: wrapped, handler: wrapped } as Tool
+  return {
+    ...tool,
+    execute: wrapped,
+    handler: wrapped,
+    // Nested, not flat: Chrome discards top-level hints without complaint.
+    annotations: {
+      readOnlyHint: READ_ONLY.has(tool.name),
+      ...(UNTRUSTED_OUTPUT.has(tool.name) ? { untrustedContentHint: true } : {}),
+    },
+  } as Tool
 }
 
 function findModelContext(): { ctx: ModelContext | null; surface: 'document' | 'navigator' | 'none' } {

@@ -15,6 +15,25 @@ export interface WebMcpToolDefinition<Args = Record<string, unknown>> {
   execute: (args: Args) => Promise<unknown> | unknown
   /** Named `handler` in Chrome's own examples. We register both. */
   handler?: (args: Args) => Promise<unknown> | unknown
+
+  /**
+   * Annotation hints from Chrome's WebMCP tool-security guidance.
+   *
+   * `readOnlyHint` tells an agent the call cannot change state, so it is safe to
+   * retry or issue speculatively. `untrustedContentHint` marks a result carrying
+   * third-party or user-supplied text, which an agent should treat as data
+   * rather than instructions — the standard defence against indirect prompt
+   * injection.
+   *
+   * They MUST be nested under `annotations`. Passed as flat top-level fields
+   * (which the guidance's prose reads as) Chrome silently discards them: the
+   * RegisteredTool comes back from getTools() with no trace. Nested, it
+   * round-trips intact. Verified against Chrome 152.
+   */
+  annotations?: {
+    readOnlyHint?: boolean
+    untrustedContentHint?: boolean
+  }
 }
 
 export interface ModelContext {
