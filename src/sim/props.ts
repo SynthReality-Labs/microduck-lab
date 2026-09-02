@@ -12,7 +12,7 @@
 export interface PropSpec {
   id: string
   label: string
-  /** MJCF geom body, minus the freejoint and position, which are added below. */
+  /** MJCF geoms for the body, minus the freejoint and position. May be several. */
   geom: string
   /** Mass in kg. The duck is 0.8 kg, so anything above ~0.4 is immovable to it. */
   mass: number
@@ -38,9 +38,36 @@ export const PROPS: PropSpec[] = [
     about: 'A 3 cm kerb spanning the path. Anchored — the duck must climb it.',
   },
   {
-    id: 'ramp', label: 'Ramp', mass: 5.0, z: 0.03,
-    geom: '<geom type="box" size="0.12 0.16 0.008" rgba="0.42 0.55 0.48 1" group="2"/>',
-    about: 'A shallow incline to walk up. Anchored.',
+    /*
+     * An inclined slab, not an inline wedge mesh.
+     *
+     * A real triangular prism was built first, declared by its vertices.
+     * MuJoCo's compiler recentres every mesh on its centre of mass AND rotates
+     * it so the inertia matrix is diagonal, which stood the ramp on end. Making
+     * the shape symmetric did not help — the compiler also sorts the principal
+     * axes. Counter-rotating on the geom did not take either: the correction
+     * that would work maps z->x and x->z, which has determinant -1, so it is a
+     * reflection and no quaternion expresses it.
+     *
+     * A thick slab at a real incline reads as a ramp and always lands the right
+     * way up. The earlier version looked like a step because it was 8 mm thick
+     * at 9 degrees; this is 2 cm at 16, with its low edge on the floor.
+     */
+    id: 'ramp', label: 'Ramp', mass: 4.0, z: 0.052,
+    geom: '<geom type="box" size="0.15 0.08 0.01" euler="0 -0.279 0" rgba="0.42 0.55 0.48 1" group="2"/>',
+    about: 'A 30 cm slab inclined about 16 degrees. Anchored — the duck walks up it.',
+  },
+  {
+    // Four boxes in one body: a staircase is one obstacle, not four props.
+    id: 'stairs', label: 'Stairs', mass: 8.0, z: 0.0,
+    geom: [0, 1, 2, 3]
+      .map((i) => {
+        const h = 0.012 * (i + 1)
+        return `<geom type="box" pos="${(i * 0.05).toFixed(3)} 0 ${(h / 2).toFixed(4)}" ` +
+          `size="0.025 0.08 ${(h / 2).toFixed(4)}" rgba="0.5 0.54 0.6 1" group="2"/>`
+      })
+      .join(''),
+    about: 'Four 1.2 cm steps. Anchored — the duck has to climb them one at a time.',
   },
   {
     id: 'ball', label: 'Ball', mass: 0.02, z: 0.035,
@@ -71,6 +98,7 @@ export const PARK_Z = 0.5
  * Takes the vendored scene as text so the upstream file stays untouched — we
  * redistribute it unmodified, and the props are ours.
  */
+
 export function sceneWithProps(sceneXml: string): string {
   const bodies = PROPS.map(
     (p) => `

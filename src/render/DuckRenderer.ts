@@ -21,6 +21,16 @@ export class DuckRenderer {
   readonly controls: OrbitControls
   /** When true the orbit target tracks the duck; the user's angle and zoom are kept. */
   follow = true
+  /**
+   * Manual camera moves suspend following, then it resumes on its own.
+   *
+   * Snapping straight back would fight the user mid-gesture; never resuming
+   * means one nudge and the duck walks out of frame forever. Resuming after a
+   * few idle seconds — keeping the angle and zoom they chose — does what people
+   * actually expect.
+   */
+  private followResumeAt = 0
+  private static readonly FOLLOW_RESUME_MS = 2500
   private readonly raycaster = new THREE.Raycaster()
   private readonly pointer = new THREE.Vector2()
   private downAt: { x: number; y: number } | null = null
@@ -62,6 +72,12 @@ export class DuckRenderer {
     this.controls.maxDistance = 6
     this.controls.maxPolarAngle = Math.PI * 0.495 // stop just above the floor
     this.controls.target.set(0, 0, 0.1)
+    this.controls.addEventListener('start', () => {
+      this.followResumeAt = Infinity // held while the gesture is in progress
+    })
+    this.controls.addEventListener('end', () => {
+      this.followResumeAt = performance.now() + DuckRenderer.FOLLOW_RESUME_MS
+    })
 
     this.scene.background = new THREE.Color(0x0f1418)
     this.scene.fog = new THREE.Fog(0x0f1418, 1.5, 6)
@@ -247,11 +263,28 @@ export class DuckRenderer {
    *  while never losing a duck walking at the top of its command range. */
   private followDuck(): void {
     if (this.trunkGeomId < 0 || !this.follow) return
+    if (performance.now() < this.followResumeAt) return
+
     const xpos = this.sim.data.geom_xpos
     const p = this.trunkGeomId * 3
     this.focus.set(xpos[p], xpos[p + 1], Math.max(xpos[p + 2], 0.05))
     // Move the orbit target, not the camera: the user's angle and zoom survive.
+    const offset = new THREE.Vector3().subVectors(this.camera.position, this.controls.target)
     this.controls.target.lerp(this.focus, 0.08)
+    this.camera.position.copy(this.controls.target).add(offset)
+  }
+
+  /** Put the camera back where it started and resume following immediately. */
+  resetCamera(): void {
+    const xpos = this.sim.data.geom_xpos
+    const p = Math.max(this.trunkGeomId, 0) * 3
+    const at = new THREE.Vector3(xpos[p] || 0, xpos[p + 1] || 0, Math.max(xpos[p + 2] || 0.1, 0.05))
+    this.controls.target.copy(at)
+    this.camera.position.copy(at).add(new THREE.Vector3(0.55, -0.55, 0.22))
+    this.focus.copy(at)
+    this.followResumeAt = 0
+    this.follow = true
+    this.controls.update()
   }
 
   /** Show an impulse arrow at the duck, whoever caused it. */

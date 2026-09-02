@@ -134,6 +134,11 @@ export function describeRobot(): Result<{
 
 const POSES: KeyframeName[] = ['INIT', 'STAND', 'SIT', 'FOLD']
 
+export function resetCamera(): Result<{ reset: true }> {
+  renderer?.resetCamera()
+  return { ok: true, reset: true }
+}
+
 export function resetSim(pose: KeyframeName = 'STAND'): Result<{ pose: string }> {
   const s = requireSim()
   if (isErr(s)) return s
@@ -148,6 +153,10 @@ export function resetSim(pose: KeyframeName = 'STAND'): Result<{ pose: string }>
     }
   }
   s.reset(pose)
+  // Resetting the robot resets the view too: after orbiting around a fallen
+  // duck, "Stand" should give back the default framing rather than leave you
+  // looking at empty floor.
+  renderer?.resetCamera()
   return { ok: true, pose }
 }
 
@@ -1388,19 +1397,41 @@ export function spawnProp(args: { id: string; ahead?: number; lateral?: number; 
   const ahead = args.ahead ?? 0.45
   const lateral = args.lateral ?? 0
   const qpos = s.data.qpos
-  const x = qpos[0] + ahead
-  const y = qpos[1] + lateral
+
+  // Place along the duck's HEADING, not world +x. Once it has turned — and the
+  // walking policy drifts in yaw constantly — "in front of the duck" and
+  // "further along x" stop being the same place, and obstacles land beside it.
+  const [qw, qx, qy, qz] = [qpos[3], qpos[4], qpos[5], qpos[6]]
+  let fx = 1 - 2 * (qy * qy + qz * qz)
+  let fy = 2 * (qx * qy + qw * qz)
+  const flen = Math.hypot(fx, fy) || 1
+  fx /= flen
+  fy /= flen
+  // Right-hand side of the heading, for the lateral offset.
+  const rx = fy
+  const ry = -fx
+
+  const x = qpos[0] + fx * ahead + rx * lateral
+  const y = qpos[1] + fy * ahead + ry * lateral
   const z = spec.z
 
-  // A ramp is a plate pitched about +y; everything else spawns level.
-  const pitch = ((args.pitchDeg ?? (spec.id === 'ramp' ? -9 : 0)) * Math.PI) / 360
+  // Face the prop along the duck's heading too, so a ramp or a step is crossed
+  // squarely rather than at whatever angle the world axes happen to give.
+  const yaw = Math.atan2(fy, fx)
+  const pitch = ((args.pitchDeg ?? 0) * Math.PI) / 360
+  const halfYaw = yaw / 2
+  // Yaw about z composed with an optional pitch about the local y.
+  const cy = Math.cos(halfYaw)
+  const sy = Math.sin(halfYaw)
+  const cp = Math.cos(pitch)
+  const sp = Math.sin(pitch)
   qpos[adr] = x
   qpos[adr + 1] = y
   qpos[adr + 2] = z
-  qpos[adr + 3] = Math.cos(pitch)
-  qpos[adr + 4] = 0
-  qpos[adr + 5] = Math.sin(pitch)
-  qpos[adr + 6] = 0
+  qpos[adr + 3] = cy * cp
+  qpos[adr + 4] = -sy * sp
+  qpos[adr + 5] = cy * sp
+  qpos[adr + 6] = sy * cp
 
   // Zero its velocity too, or a re-spawned prop keeps whatever it was doing.
   const vadr = s.model.jnt_dofadr[s.mj.mj_name2id(s.model, s.mj.mjtObj.mjOBJ_JOINT.value, `prop_${spec.id}_free`)]

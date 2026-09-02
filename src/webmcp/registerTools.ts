@@ -456,12 +456,13 @@ const tools: Tool[] = [
     name: 'spawn_prop',
     title: 'Put an obstacle in the path',
     description:
-      "Place an obstacle in front of the robot. Positioned relative to where the duck currently is, " +
-      'so "in its path" needs no coordinates. The small box and ball are light enough to shove; the ' +
-      'big box, step and ramp are effectively anchored, so the robot has to climb or go around.',
+      'Place an obstacle in the robot\'s path. Positioned and oriented along its current HEADING, ' +
+      'not world axes, so it lands in front of the duck even after it has turned. The small box and ' +
+      'ball are light enough to shove aside; the big box, step, ramp and stairs are effectively ' +
+      'anchored, so the robot has to climb them or go around.',
     inputSchema: obj(
       {
-        id: { type: 'string', enum: ['small-box', 'big-box', 'step', 'ramp', 'ball'], description: 'Which obstacle.' },
+        id: { type: 'string', enum: ['small-box', 'big-box', 'step', 'ramp', 'stairs', 'ball'], description: 'Which obstacle.' },
         ahead: { type: 'number', minimum: 0.1, maximum: 3, description: 'Metres in front of the robot. Defaults to 0.45.' },
         lateral: { type: 'number', minimum: -1, maximum: 1, description: 'Metres to the side. Defaults to 0.' },
         pitchDeg: { type: 'number', minimum: -45, maximum: 45, description: 'Tilt, for making a ramp steeper or shallower.' },
@@ -474,7 +475,7 @@ const tools: Tool[] = [
     name: 'clear_props',
     title: 'Remove obstacles',
     description: 'Remove one obstacle, or all of them if no id is given.',
-    inputSchema: obj({ id: { type: 'string', enum: ['small-box', 'big-box', 'step', 'ramp', 'ball'], description: 'Optional; omit to clear everything.' } }),
+    inputSchema: obj({ id: { type: 'string', enum: ['small-box', 'big-box', 'step', 'ramp', 'stairs', 'ball'], description: 'Optional; omit to clear everything.' } }),
     execute: (a: { id?: string }) => core.clearProps(a?.id),
   },
 
