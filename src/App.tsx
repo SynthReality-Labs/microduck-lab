@@ -8,8 +8,9 @@ import { useStudio } from './core/store'
 import {
   attachIntrospector, attachPolicyRunner, attachRenderer, attachSim, clearSelection,
   applyDisturbance, clearHighlight, clearProps, explainObservationSlice, getCommand, loadPolicy,
-  onPush, renderReviewFrame, resetSim, selectJoint, setAutoWake, setCommand, setPaused, spawnProp,
-  unloadPolicy, updateFallState, wakeDuck, OBS_SLICES,
+  dismissBubble, onPush, react, renderReviewFrame, resetSim, runBubbleAction, selectJoint,
+  setAutoWake, setCommand, setPaused, spawnProp, tickChatter, unloadPolicy, updateFallState,
+  OBS_SLICES,
 } from './core/commands'
 import { PROPS } from './sim/props'
 import { Introspector } from './sim/introspect'
@@ -36,9 +37,9 @@ export default function App() {
   const [policyError, setPolicyError] = useState<string | null>(null)
   const [charge, setCharge] = useState(0)
   const [mouth, setMouth] = useState<{ x: number; y: number } | null>(null)
-  const fallen = useStudio((s) => s.fallen)
-  const fallQuip = useStudio((s) => s.fallQuip)
+  const bubble = useStudio((s) => s.bubble)
   const autoWake = useStudio((s) => s.autoWake)
+  const [copied, setCopied] = useState(false)
   const [obsSlice, setObsSlice] = useState<string | null>(null)
   const [obsInfo, setObsInfo] = useState<{ what: string; liveValues: number[] } | null>(null)
 
@@ -125,7 +126,10 @@ export default function App() {
           (dir, magnitude) => applyDisturbance({ vector: dir, magnitude, source: 'mouse' }),
         )
         // One cue for every push, whoever caused it — mouse or agent.
-        unsubscribePush = onPush(({ x, y, magnitude }) => renderer?.showPushCue([x, y], magnitude))
+        unsubscribePush = onPush(({ x, y, magnitude }) => {
+          renderer?.showPushCue([x, y], magnitude)
+          react('push')
+        })
         renderer.start({
           // tick() is async; its own busy guard drops overlapping ticks rather
           // than queueing them, so the duck never acts on a stale observation.
@@ -140,9 +144,10 @@ export default function App() {
           onFrame: () => {
             setSimTime(sim!.data.time)
             updateFallState()
-            // Only track the mouth while the bubble is up: projecting every
-            // frame otherwise would be a pointless per-frame React update.
-            if (useStudio.getState().fallen) setMouth(renderer?.mouthScreenPosition() ?? null)
+            tickChatter()
+            // Only project while a bubble is up: doing it every frame otherwise
+            // would be a pointless per-frame React update.
+            if (useStudio.getState().bubble) setMouth(renderer?.mouthScreenPosition() ?? null)
           },
         })
 
@@ -192,14 +197,37 @@ export default function App() {
           <h1>MicroDuck Lab</h1>
           <p>Learn reinforcement learning by teaching robots</p>
         </div>
-        {fallen && mouth && (
-          <div className="bubble" style={{ left: mouth.x, top: mouth.y }}>
-            <p>{fallQuip}</p>
-            <button onClick={() => void wakeDuck()}>Help it up</button>
-            <label className="auto-wake">
-              <input type="checkbox" checked={autoWake} onChange={(e) => setAutoWake(e.target.checked)} />
-              auto
-            </label>
+        {bubble && mouth && (
+          <div className={`bubble ${bubble.kind}`} style={{ left: mouth.x, top: mouth.y }} key={bubble.id}>
+            <button className="bubble-x" onClick={() => dismissBubble()} title="Dismiss">×</button>
+            <p>{bubble.text}</p>
+
+            {bubble.ask && (
+              <button
+                className="bubble-ask"
+                title="Copy this and paste it to your agent"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(bubble.ask!)
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 1400)
+                }}
+              >
+                {copied ? '✓ copied — paste it to your agent' : `Ask your agent: “${bubble.ask}”`}
+              </button>
+            )}
+
+            {bubble.action && (
+              <button className="bubble-do" onClick={() => void runBubbleAction(bubble.action!.id)}>
+                {bubble.action.label}
+              </button>
+            )}
+
+            {bubble.kind === 'fall' && (
+              <label className="auto-wake">
+                <input type="checkbox" checked={autoWake} onChange={(e) => setAutoWake(e.target.checked)} />
+                auto
+              </label>
+            )}
           </div>
         )}
         {charge > 0 && (

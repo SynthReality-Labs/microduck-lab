@@ -39,6 +39,9 @@ interface StudioState {
   spawnedProps: string[]
   activeLesson: string | null
   fallen: boolean
+  /** Trunk uprightness: 1 is vertical, 0 is on its side, -1 inverted. */
+  upright: number
+  bubble: import('./bubbles').ActiveBubble | null
   fallQuip: string
   autoWake: boolean
   completedLessons: string[]
@@ -76,6 +79,8 @@ export const useStudio = create<StudioState>((set) => ({
   spawnedProps: [],
   activeLesson: null,
   fallen: false,
+  upright: 1,
+  bubble: null,
   fallQuip: '',
   autoWake: false,
   completedLessons: [],

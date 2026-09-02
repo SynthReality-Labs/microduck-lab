@@ -16,6 +16,8 @@ import { evaluatePolicy, type EvalReport } from '../sim/evaluate'
 import { SCENARIOS, applyScenario, type Scenario, type ScenarioHandle } from '../sim/scenarios'
 import { PARK_X, PARK_Z, PROPS } from '../sim/props'
 import { LESSONS, type Lesson, type LessonStep } from '../knowledge/lessons'
+import { dismissBubble, maybeIdle, noteInteraction, react, reactToFall } from './bubbles'
+import type { ActionId } from '../knowledge/chatter'
 import {
   DEFAULT_RECIPE, TASKS, bundleFiles, composeJob, type Recipe, type Target,
 } from '../sim/recipe'
@@ -228,6 +230,7 @@ export function setCommand(patch: CommandPatch): Result<{ command: unknown }> {
   const p = requirePolicyRunner()
   if (isErr(p)) return p
   const c = p.command
+  const wasBelow = Math.hypot(c.twist[0], c.twist[1]) <= 0.15
   if (patch.vx !== undefined) c.twist[0] = patch.vx
   if (patch.vy !== undefined) c.twist[1] = patch.vy
   if (patch.vyaw !== undefined) c.twist[2] = patch.vyaw
@@ -238,6 +241,9 @@ export function setCommand(patch: CommandPatch): Result<{ command: unknown }> {
     if (patch.body.pitch !== undefined) c.body.pitch = patch.body.pitch
   }
   useStudio.getState().set({ commandVersion: useStudio.getState().commandVersion + 1 })
+  noteInteraction()
+  // Crossing the velstand threshold is the moment it starts actually stepping.
+  if (wasBelow && Math.hypot(c.twist[0], c.twist[1]) > 0.15) react('walk')
   return { ok: true, command: { twist: c.twist, head: c.head, body: c.body } }
 }
 
@@ -291,6 +297,7 @@ export function selectJoint(ref: { name?: string; jointId?: number; geomId?: num
   // Selecting also highlights, so the human and the agent are looking at the
   // same thing without a second command.
   highlightJoint(info.name)
+  react('select', info.name)
   return { ok: true, selected: info }
 }
 
@@ -1441,6 +1448,7 @@ export function spawnProp(args: { id: string; ahead?: number; lateral?: number; 
 
   const spawned = [...new Set([...useStudio.getState().spawnedProps, spec.id])]
   useStudio.getState().set({ spawnedProps: spawned })
+  react('obstacle')
   return { ok: true, spawned: spec.id, at: [+x.toFixed(3), +y.toFixed(3), +z.toFixed(3)] }
 }
 
@@ -1537,25 +1545,7 @@ export async function startLesson(id: string): Promise<Result<{ lesson: unknown 
 
 // ── Falling over, and getting helped up ─────────────────────────────────────
 
-/**
- * Things the duck says when it is on the floor.
- *
- * The last one is the funniest because it is true: Pollen publish nine policies
- * and not one of them gets up. A joke that teaches something is worth more than
- * a joke that does not.
- */
-const FALL_QUIPS = [
-  'Well. That happened.',
-  'I meant to do that.',
-  'Ground: 1. Me: 0.',
-  'A little help down here?',
-  'This is fine. This is a valid pose.',
-  'I have fallen and I cannot get up — there is no get-up policy.',
-  'Gravity remains undefeated.',
-]
-
 let fallenSince = 0
-let quip = FALL_QUIPS[0]
 
 /**
  * Watch for the robot going down.
@@ -1580,17 +1570,24 @@ export function updateFallState(): void {
   const height = s.data.qpos[2]
   const down = upright < 0.4 || height < 0.06
 
+  // Publish uprightness, but only on meaningful change — this runs every frame
+  // and a per-frame store write would rerender the panel sixty times a second.
+  if (Math.abs(upright - st.upright) > 0.05) useStudio.getState().set({ upright })
+
   const now = performance.now()
   if (down) {
     if (fallenSince === 0) fallenSince = now
     if (!st.fallen && now - fallenSince > 500) {
-      quip = FALL_QUIPS[Math.floor(Math.random() * FALL_QUIPS.length)]
-      useStudio.getState().set({ fallen: true, fallQuip: quip })
+      useStudio.getState().set({ fallen: true })
       if (st.autoWake) void wakeDuck()
+      else reactToFall()
     }
   } else {
     fallenSince = 0
-    if (st.fallen && upright > 0.7) useStudio.getState().set({ fallen: false })
+    if (st.fallen && upright > 0.7) {
+      useStudio.getState().set({ fallen: false })
+      if (useStudio.getState().bubble?.kind === 'fall') dismissBubble()
+    }
   }
 }
 
@@ -1607,6 +1604,7 @@ export async function wakeDuck(): Promise<Result<{ woken: true; note: string }>>
   s.reset('STAND')
   fallenSince = 0
   useStudio.getState().set({ fallen: false })
+  dismissBubble()
   return {
     ok: true,
     woken: true,
@@ -1621,3 +1619,28 @@ export function setAutoWake(on: boolean): Result<{ autoWake: boolean }> {
   useStudio.getState().set({ autoWake: on })
   return { ok: true, autoWake: on }
 }
+
+/** Actions a bubble can offer. Named so content stays data, not callbacks. */
+export async function runBubbleAction(id: ActionId): Promise<void> {
+  noteInteraction()
+  switch (id) {
+    case 'walk': setCommand({ vx: 0.3, vy: 0, vyaw: 0 }); break
+    case 'stop': setCommand({ vx: 0, vy: 0, vyaw: 0 }); break
+    case 'lesson1': await startLesson('observations'); break
+    case 'spawn-box': spawnProp({ id: 'small-box' }); break
+    case 'spawn-stairs': spawnProp({ id: 'stairs', ahead: 0.55 }); break
+    case 'run-eval': await runEvalSuite({}); break
+    case 'record-library': await recordLibrary(); break
+    case 'wake': await wakeDuck(); break
+    case 'ice': setEnvironment({ preset: 'ice' }); break
+    case 'flat': setEnvironment({ preset: 'flat' }); break
+  }
+  dismissBubble()
+}
+
+/** Called from the render loop; internally rate-limited. */
+export function tickChatter(): void {
+  maybeIdle()
+}
+
+export { dismissBubble, noteInteraction, react } from './bubbles'
