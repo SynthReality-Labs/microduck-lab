@@ -16,6 +16,7 @@ export function EscalatePanel() {
   const imported = useStudio((s) => s.importedPolicies)
   const [importError, setImportError] = useState<string | null>(null)
   const [dropping, setDropping] = useState(false)
+  const [copiedPrompt, setCopiedPrompt] = useState(false)
 
   const { recipe, tasks } = useMemo(() => {
     void recipeVersion
@@ -26,7 +27,9 @@ export function EscalatePanel() {
   const job = useMemo(() => {
     void recipeVersion
     const r = composeTrainingJob()
-    return r.ok ? (r.job as { command: string; estimate: string; warnings: string[] }) : null
+    return r.ok
+      ? (r.job as { command: string; estimate: string; warnings: string[]; agentPrompt: string })
+      : null
   }, [recipeVersion])
 
   const onDrop = async (e: React.DragEvent) => {
@@ -70,6 +73,21 @@ export function EscalatePanel() {
 
       {job && <pre className="cmd">{job.command}</pre>}
       {job?.warnings.map((w) => <p className="inline-err" key={w}>{w}</p>)}
+
+      {/* The handoff is agent-to-agent: paste this into the assistant on the
+          machine with the GPU and training continues the same conversation. */}
+      <button
+        className="handoff"
+        title="Copy a prompt for the agent on your GPU machine"
+        onClick={() => {
+          if (!job) return
+          void navigator.clipboard?.writeText(job.agentPrompt)
+          setCopiedPrompt(true)
+          setTimeout(() => setCopiedPrompt(false), 1800)
+        }}
+      >
+        {copiedPrompt ? '✓ copied — paste it to the agent on your GPU box' : '⇥ Copy prompt to resume training on your GPU'}
+      </button>
 
       <div className="controls" style={{ marginTop: 8 }}>
         <button onClick={() => exportTrainingJob()}>Download bundle</button>

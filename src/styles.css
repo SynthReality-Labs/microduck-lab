@@ -236,3 +236,11 @@ button.disclose { background: none; border: none; padding: 0 2px; color: var(--d
 }
 .bubble:hover .bubble-life i { opacity: .18; }
 .bubble { cursor: default; padding-bottom: 13px; }
+
+/* The GPU handoff reads as the primary escalation route, not a footnote. */
+button.handoff {
+  display: block; width: 100%; margin-top: 8px; text-align: left;
+  background: #1f2a33; border: 1px solid #3a4c5c; color: var(--accent);
+  border-radius: 6px; padding: 7px 9px; font-size: 11.5px; font-weight: 600;
+}
+button.handoff:hover { background: #253240; border-color: var(--accent); }

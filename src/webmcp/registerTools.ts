@@ -410,9 +410,10 @@ const tools: Tool[] = [
     name: 'compose_training_job',
     title: 'Compose the training command',
     description:
-      'Turn the recipe into a REAL, runnable mjlab command, with a time estimate, a pre-flight smoke ' +
-      'test and any warnings. Every flag emitted has been verified against the real CLI and executed. ' +
-      'Use when the user is ready to move from the browser to actual training.',
+      'Turn the recipe into a REAL, runnable mjlab command, plus an agentPrompt the user can paste to ' +
+      'the assistant on their GPU machine or Hugging Face Jobs to run the whole thing end to end. ' +
+      'Every flag has been verified against the real CLI. Use when the user is ready to move from the ' +
+      'browser to actual training — offer them the agentPrompt, it continues this conversation there.',
     inputSchema: NO_ARGS,
     execute: () => core.composeTrainingJob(),
   },
