@@ -75,6 +75,40 @@ gesture is the query.**
 - **Makes any agent a Microduck expert** by serving Pollen's own hard-won RL
   playbook through tools, rather than expecting the model to already know it.
 
+## The tool registration, in one place
+
+Every tool is a plain object with the four WebMCP fields, registered on
+`document.modelContext`. One of the 53, verbatim from
+[`src/webmcp/registerTools.ts`](src/webmcp/registerTools.ts):
+
+```ts
+document.modelContext.registerTool({
+  name: 'set_command',
+  description:
+    'Set what the robot is being asked to do. Trained ranges are forward -0.4..0.4 m/s, ' +
+    'lateral -0.3..0.3 m/s, yaw -1..1 rad/s; commanding outside those is out of ' +
+    'distribution and the policy may behave unpredictably.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      vx:   { type: 'number', minimum: -0.4, maximum: 0.4, description: 'Forward velocity, m/s.' },
+      vy:   { type: 'number', minimum: -0.3, maximum: 0.3, description: 'Lateral velocity, m/s.' },
+      vyaw: { type: 'number', minimum: -1,   maximum: 1,   description: 'Yaw rate, rad/s.' },
+    },
+    additionalProperties: false,
+  },
+  execute: async (input) => core.setCommand(input),
+  annotations: { readOnlyHint: false },
+})
+```
+
+In the source the definitions live in a `tools` array and are registered in a
+loop (`registerTools.ts`, `registerInto()`), each wrapped by `instrument()` to
+log the call and attach its security annotations — which is what the snippet
+above is after that wrapping. `execute` delegates to
+[`src/core/commands.ts`](src/core/commands.ts), the same function the slider
+calls, which is why the slider moves when the agent calls this.
+
 ## Why WebMCP
 
 Because without it the agent is guessing at a screenshot and you are
