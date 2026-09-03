@@ -84,7 +84,15 @@ select { width: 100%; background: #1e2731; color: var(--text); border: 1px solid
 .learn {
   border-top: 1px solid var(--line); background: var(--panel);
   padding: 10px 14px 12px; flex: 0 0 auto; max-height: 46%; overflow: auto;
+  overscroll-behavior: contain; scrollbar-gutter: stable;
 }
+.learn.shut { max-height: none; overflow: visible; padding-bottom: 10px; }
+.learn-disclose {
+  display: flex; align-items: center; gap: 6px;
+  background: none; border: 0; padding: 0; cursor: pointer; color: inherit;
+}
+.learn-disclose .chev { color: var(--dim); font-size: 9px; width: 9px; }
+.learn-disclose:hover h2 { color: var(--fg); }
 .learn-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .learn-head h2 { margin: 0; font-size: 11px; text-transform: uppercase;
   letter-spacing: .09em; color: var(--dim); font-weight: 600; }
@@ -304,3 +312,29 @@ button.handoff:hover { background: #253240; border-color: var(--accent); }
   .app { grid-template-columns: 210px 1fr 300px; }
   .topbar { font-size: 11px; gap: 4px; }
 }
+
+
+/* ── Scrolling ───────────────────────────────────────────────────────────── */
+
+/* Reserving the gutter is the whole fix for the jumpy feel: without it, opening
+   a fold summons a scrollbar and every row in the panel shifts sideways. */
+.panel { scrollbar-gutter: stable; }
+
+.panel::-webkit-scrollbar, .learn::-webkit-scrollbar { width: 10px; }
+.panel::-webkit-scrollbar-track, .learn::-webkit-scrollbar-track { background: transparent; }
+.panel::-webkit-scrollbar-thumb, .learn::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--line) 80%, transparent);
+  border: 3px solid transparent; background-clip: content-box; border-radius: 999px;
+}
+.panel:hover::-webkit-scrollbar-thumb, .learn:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--dim) 55%, transparent); background-clip: content-box;
+}
+.panel, .learn { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+
+/* Section headers stay put while their body scrolls past, so you always know
+   which section you are inside of. */
+.panel .fold > h2, .panel section > h2 {
+  position: sticky; top: -12px; z-index: 2;
+  background: var(--panel); padding-top: 12px; margin-top: -12px;
+}
+.learn-head { position: sticky; top: -10px; z-index: 2; background: var(--panel); }

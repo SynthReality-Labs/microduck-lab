@@ -18,6 +18,7 @@ export function LearnPanel() {
   const objectiveVersion = useStudio((s) => s.objectiveVersion)
   const status = useStudio((s) => s.status)
   const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(true)
 
   const objective = useMemo(() => {
     void objectiveVersion
@@ -57,9 +58,20 @@ export function LearnPanel() {
   const span = Math.max(best - worst, 0.001)
 
   return (
-    <div className="learn">
+    <div className={`learn ${open ? 'open' : 'shut'}`}>
       <div className="learn-head">
-        <h2>Reward design</h2>
+        {/* A dock, not a strip: with no rollouts recorded this panel is two
+            lines tall and reads as page furniture, so give it a handle that
+            says it is a panel and remembers being closed. */}
+        <button
+          className="learn-disclose"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          title={open ? 'Collapse reward design' : 'Expand reward design'}
+        >
+          <span className="chev" aria-hidden>{open ? '▾' : '▸'}</span>
+          <h2>Reward design</h2>
+        </button>
         {recording ? (
           <span className="pill">recording {recording.label}…</span>
         ) : rolloutIds.length === 0 ? (
@@ -79,7 +91,7 @@ export function LearnPanel() {
         )}
       </div>
 
-      {rolloutIds.length === 0 ? (
+      {!open ? null : rolloutIds.length === 0 ? (
         <p className="hint">
           Record four rollouts using the real published policies, then score them under a reward
           function you control. Changing a weight retrains nothing — it reveals what your reward
