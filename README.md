@@ -186,6 +186,41 @@ guaranteed inside an embedded browser.
   velocity. The robustness figures are a property of this simulation, not of the
   real robot.
 
+## What's next
+
+- **A deeper policy-and-reward designer, working with the agent.** Explore and
+  design policies and rewards inside MicroDuck Lab; the agent runs the branch
+  experiments on a local GPU or in the cloud (Hugging Face Jobs), collects and
+  analyses every result, picks the winning policies, and you iterate again in
+  MicroDuck Lab.
+- **Closing the loop tighter.** Today the handoff to a GPU is a prompt you
+  paste; next it is a **trainer bridge** — a small local daemon the agent can
+  talk to directly, so a training run is launched, watched and brought back
+  without leaving the conversation at all. Alongside it, an **experiment
+  journal**: every recipe, every eval, every A/B kept as agent-readable
+  history, so the question becomes *what did we try last Tuesday and why did
+  it lose* rather than *what is the state right now*. And the training curves
+  themselves come into the studio, next to the A/B table, so the whole loop —
+  hypothesis, run, result — is visible in one place.
+- **The rest of the sensors**, especially the RGB camera and the ToF, to train
+  more complex policies.
+- **Arena — several ducks, one world.** The feature that was scoped first and
+  cut first. Two ducks and a ball, because football makes multi-agent reward
+  design self-evident: both ducks chase the ball, and the reason is visible at
+  a glance — both are rewarded for ball proximity and nothing rewards
+  positional diversity. It is hierarchical by construction, which is what makes
+  it tractable: the low-level locomotion is already trained (Pollen's
+  `alpha_walking` and `ball_kick_*`), so what gets designed in the browser is
+  the high-level policy that decides where to walk and when to kick. That is
+  the honest, cheap, and pedagogically right introduction to hierarchical RL,
+  and it gives the agent a new class of question to answer: not *why did this
+  duck fall* but *why do these two ducks do the same thing*.
+- **A get-up policy**, so the duck can fix what it says it cannot.
+- **Contextual tool registration** — fewer tools exposed until the state makes
+  them relevant.
+- **More of the robot's own catalogue**: the ball kick, the roller mode, the
+  tasks mjlab already knows how to train.
+
 ## License
 
 MicroDuck Lab is [Apache-2.0](LICENSE). Redistributed Pollen Robotics assets keep
