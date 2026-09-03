@@ -129,7 +129,7 @@ Client-only. No backend, no telemetry, nothing to authenticate.
 | Physics | [`@mujoco/mujoco`](https://github.com/google-deepmind/mujoco/tree/main/wasm), single-threaded WASM |
 | Policies | `onnxruntime-web` |
 | Rendering | Three.js, from MuJoCo's compiled mesh arrays |
-| Agent surface | `document.modelContext.registerTool` |
+| Agent surface | `document.modelContext.registerTool` — every tool, with its schema and execute function, is in [`src/webmcp/registerTools.ts`](src/webmcp/registerTools.ts); the functions they wrap are in [`src/core/commands.ts`](src/core/commands.ts) |
 
 Single-threaded MuJoCo is deliberate: the multi-threaded build needs
 `SharedArrayBuffer` and therefore cross-origin isolation, which is not
