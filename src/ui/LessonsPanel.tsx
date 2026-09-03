@@ -9,11 +9,13 @@ import { LESSONS } from '../knowledge/lessons'
  * Each lesson performs a real action and then hands the user a question for the
  * agent. The explaining is done by something that can read the live state.
  */
-export function LessonsPanel() {
+/** `bare` drops the section chrome — the left panel supplies its own fold. */
+export function LessonsPanel({ bare = false }: { bare?: boolean } = {}) {
   const completed = useStudio((s) => s.completedLessons)
   const active = useStudio((s) => s.activeLesson)
   const status = useStudio((s) => s.status)
   const [open, setOpen] = useState(true)
+  const isOpen = bare || open
   const [busy, setBusy] = useState<string | null>(null)
   const [result, setResult] = useState<{ id: string; expect: string; ask: string } | null>(null)
 
@@ -28,15 +30,14 @@ export function LessonsPanel() {
     }
   }
 
-  return (
-    <section className="lessons">
-      <h2>
-        <button className="disclose" onClick={() => setOpen(!open)}>{open ? '▾' : '▸'}</button>
-        Learn RL{' '}
-        <span className="pill">{completed.length}/{LESSONS.length}</span>
-      </h2>
-
-      {open && (
+  const body = (
+    <>
+      {bare && (
+        <p className="hint" style={{ marginTop: 0 }}>
+          {completed.length}/{LESSONS.length} done
+        </p>
+      )}
+      {isOpen && (
         <ol className="lesson-list">
           {LESSONS.map((l, i) => {
             const done = completed.includes(l.id)
@@ -63,6 +64,18 @@ export function LessonsPanel() {
           })}
         </ol>
       )}
+    </>
+  )
+
+  if (bare) return body
+  return (
+    <section className="lessons">
+      <h2>
+        <button className="disclose" onClick={() => setOpen(!open)}>{open ? '▾' : '▸'}</button>
+        Learn RL{' '}
+        <span className="pill">{completed.length}/{LESSONS.length}</span>
+      </h2>
+      {body}
     </section>
   )
 }

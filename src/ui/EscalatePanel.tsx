@@ -11,7 +11,8 @@ import type { Recipe } from '../sim/recipe'
  * The browser is where a hypothesis is formed and cheaply falsified; the GPU is
  * where you pay for the ones that survive. This panel is the seam between them.
  */
-export function EscalatePanel() {
+/** `bare` drops the section chrome — the caller supplies its own fold. */
+export function EscalatePanel({ bare = false }: { bare?: boolean } = {}) {
   const recipeVersion = useStudio((s) => s.recipeVersion)
   const imported = useStudio((s) => s.importedPolicies)
   const [importError, setImportError] = useState<string | null>(null)
@@ -28,7 +29,10 @@ export function EscalatePanel() {
     void recipeVersion
     const r = composeTrainingJob()
     return r.ok
-      ? (r.job as { command: string; estimate: string; warnings: string[]; agentPrompt: string })
+      ? (r.job as {
+          command: string; estimate: string; warnings: string[]
+          agentPrompt: string; notes: string[]; smokeTestFirst: string
+        })
       : null
   }, [recipeVersion])
 
@@ -48,10 +52,8 @@ export function EscalatePanel() {
 
   if (!recipe) return null
 
-  return (
-    <section>
-      <h2>Train elsewhere</h2>
-
+  const body = (
+    <>
       <label className="field">
         <span>Task</span>
         <select value={recipe.task} onChange={(e) => setRecipe({ task: e.target.value as Recipe['task'] })}>
@@ -71,14 +73,20 @@ export function EscalatePanel() {
       <div className="row"><span>Envs × iterations</span><span>{recipe.numEnvs} × {recipe.iterations}</span></div>
       <div className="row"><span>Estimate</span><span>{job?.estimate}</span></div>
 
+      {/* The three targets differ by one token each — a leading
+          CUDA_VISIBLE_DEVICES, or a trailing --hf-jobs — which is easy to miss
+          in six lines of flags. Say what changed before showing it. */}
+      <p className="target-note">{TARGET_NOTE[recipe.target]}</p>
+
       {job && <pre className="cmd">{job.command}</pre>}
+      {job?.notes.map((n) => <p className="hint" key={n}>{n}</p>)}
       {job?.warnings.map((w) => <p className="inline-err" key={w}>{w}</p>)}
 
       {/* The handoff is agent-to-agent: paste this into the assistant on the
           machine with the GPU and training continues the same conversation. */}
       <button
         className="handoff"
-        title="Copy a prompt for the agent on your GPU machine"
+        title={`Copy a prompt for the agent ${HANDOFF_WHERE[recipe.target]}`}
         onClick={() => {
           if (!job) return
           void navigator.clipboard?.writeText(job.agentPrompt)
@@ -86,7 +94,7 @@ export function EscalatePanel() {
           setTimeout(() => setCopiedPrompt(false), 1800)
         }}
       >
-        {copiedPrompt ? '✓ copied — paste it to the agent on your GPU box' : '⇥ Copy prompt to resume training on your GPU'}
+        {copiedPrompt ? `✓ copied — paste it to the agent ${HANDOFF_WHERE[recipe.target]}` : `⇥ Copy prompt to train ${HANDOFF_WHERE[recipe.target]}`}
       </button>
 
       <div className="controls" style={{ marginTop: 8 }}>
@@ -106,6 +114,28 @@ export function EscalatePanel() {
       {imported.length > 0 && (
         <p className="hint">Imported: {imported.join(', ')} — now selectable in the policy list and in the eval suite.</p>
       )}
+    </>
+  )
+
+  if (bare) return body
+  return (
+    <section>
+      <h2>Train elsewhere</h2>
+      {body}
     </section>
   )
+}
+
+/** What each target actually changes about the command above. */
+const TARGET_NOTE: Record<Recipe['target'], string> = {
+  'local-gpu': 'Runs as-is on a machine with a CUDA GPU. Roughly 1–2 h for a usable gait.',
+  'local-cpu': 'Prefixed with CUDA_VISIBLE_DEVICES="" to force mjlab\'s CPU path — works on Apple Silicon, and is how you check the config is sane before paying for GPU time.',
+  'hf-jobs': 'Adds --hf-jobs, which submits to Hugging Face GPUs instead of running here. No local CUDA needed; add --dry-run first to inspect the job spec.',
+}
+
+/** Where the pasted prompt is meant to be pasted. */
+const HANDOFF_WHERE: Record<Recipe['target'], string> = {
+  'local-gpu': 'on your GPU machine',
+  'local-cpu': 'on this machine',
+  'hf-jobs': 'on a machine that can reach Hugging Face',
 }

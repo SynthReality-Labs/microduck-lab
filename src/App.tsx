@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Collapsible } from './ui/Collapsible'
 import { MicroDuckSim } from './sim/MicroDuckSim'
 import { mountModelAssets } from './sim/mujocoRuntime'
 import { PolicyRunner } from './sim/PolicyRunner'
@@ -171,10 +172,11 @@ export default function App() {
 
         // Land on a standing duck, not a collapsed one. A biped cannot balance
         // passively, so with no policy loaded the robot faceplants within
-        // seconds — which is every first visitor's first impression. alpha_walking
-        // is a velstand policy, so at zero command it simply stands, and
-        // "Walk forward" then works with nothing else to set up.
-        await loadPolicy('alpha_walking')
+        // seconds — which is every first visitor's first impression.
+        // alpha_stand holds a calm pose and does not wander off-camera while
+        // you read the page; switching to alpha_walking is one click or one
+        // sentence to the agent away.
+        await loadPolicy('alpha_stand')
         sim.reset('STAND')
 
         await registerWebMcpTools()
@@ -209,12 +211,69 @@ export default function App() {
 
   return (
     <div className="app">
+      <aside className="panel left">
+        <Collapsible title="Selection" defaultOpen>
+          {selection ? (
+            <>
+              <div className="row"><span>Joint</span><span>{selection.jointName}</span></div>
+              <div className="row"><span>Body</span><span>{selection.bodyName}</span></div>
+              <button onClick={() => clearSelection()}>Clear</button>
+            </>
+          ) : (
+            <p className="hint" style={{ margin: 0 }}>
+              Click a part of the duck. Your selection becomes agent-readable state — ask
+              “what am I looking at?” and the agent resolves it without you describing anything.
+            </p>
+          )}
+        </Collapsible>
+
+        <Collapsible title="Learn RL">
+          <LessonsPanel bare />
+        </Collapsible>
+
+        <Collapsible title="Obstacles">
+          <div className="obs-slices">
+            {PROPS.map((p) => (
+              <button key={p.id} title={p.about} onClick={() => spawnProp({ id: p.id })}>
+                {p.label}
+              </button>
+            ))}
+            <button onClick={() => clearProps()}>Clear</button>
+          </div>
+          <p className="hint">Dropped 45 cm in front of the duck. Small box and ball are light enough to shove.</p>
+        </Collapsible>
+      </aside>
+
       <div className="stage">
-        <canvas ref={canvasRef} />
+        <div className="stage-top">
         <div className="brand">
           <h1>MicroDuck Lab</h1>
           <p>Learn reinforcement learning by teaching robots</p>
         </div>
+        <div className="topbar">
+          <button
+            className="transport"
+            title={paused ? 'Resume' : 'Pause'}
+            onClick={() => setPaused(!paused)}
+          >
+            {paused ? '▶' : '⏸'}
+          </button>
+          <span className="sep" />
+          <button onClick={() => resetSim('STAND')}>Stand</button>
+          <button onClick={() => resetSim('SIT')}>Sit</button>
+          <button onClick={() => resetSim('INIT')}>Init</button>
+          <span className="sep" />
+          <span className={`stat ${status === 'ready' ? 'ok' : ''}`} title="Status">
+            <i className="dot" />{status}
+          </span>
+          <span className="stat" title="Simulated seconds">{simTime.toFixed(2)}s</span>
+          <span className="stat" title="Actuators (action dim)">nu {robot?.nu ?? '—'}</span>
+          <span className="stat" title="Generalised coordinates">nq {robot?.nq ?? '—'}</span>
+        </div>
+        <div className="stage-top-pad" />
+        </div>
+
+        <canvas ref={canvasRef} />
         {bubble && mouth && (
           <div
             className={`bubble ${bubble.kind}`}
@@ -295,19 +354,6 @@ export default function App() {
       </div>
 
       <aside className="panel">
-        <section>
-          <h2>Simulation</h2>
-          <div className="row"><span>Status</span><span>{status}</span></div>
-          <div className="row"><span>Sim time</span><span>{simTime.toFixed(2)} s</span></div>
-          <div className="row"><span>Actuators (action dim)</span><span>{robot?.nu ?? '—'}</span></div>
-          <div className="row"><span>qpos</span><span>{robot?.nq ?? '—'}</span></div>
-          <div className="controls" style={{ marginTop: 10 }}>
-            <button onClick={() => resetSim('STAND')}>Stand</button>
-            <button onClick={() => resetSim('INIT')}>Init</button>
-            <button onClick={() => resetSim('SIT')}>Sit</button>
-            <button onClick={() => setPaused(!paused)}>{paused ? 'Resume' : 'Pause'}</button>
-          </div>
-        </section>
 
         <section>
           <h2>Policy</h2>
@@ -356,29 +402,25 @@ export default function App() {
             <button onClick={() => applyCommand({ vx: 0, vy: 0, vyaw: 0 })}>Zero</button>
           </div>
           <p className="hint">
-            alpha_walking is a <em>velstand</em> policy: below roughly 0.15&nbsp;m/s it stands
-            in place rather than stepping.
+            {loadedPolicy === 'alpha_walking' ? (
+              <>
+                alpha_walking is a <em>velstand</em> policy: below roughly 0.15&nbsp;m/s it
+                stands in place rather than stepping.
+              </>
+            ) : (
+              <>
+                Commands only move the duck if the loaded policy was trained to follow them.
+                Pick <strong>Walking</strong> above, or ask the agent to.
+              </>
+            )}
           </p>
-        </section>
-
-        <LessonsPanel />
-
-        <section>
-          <h2>Obstacles</h2>
-          <div className="obs-slices">
-            {PROPS.map((p) => (
-              <button key={p.id} title={p.about} onClick={() => spawnProp({ id: p.id })}>
-                {p.label}
-              </button>
-            ))}
-            <button onClick={() => clearProps()}>Clear</button>
-          </div>
-          <p className="hint">Dropped 45 cm in front of the duck. Small box and ball are light enough to shove.</p>
         </section>
 
         <EvalPanel />
 
-        <EscalatePanel />
+        <Collapsible title="Train elsewhere">
+          <EscalatePanel bare />
+        </Collapsible>
 
         <section>
           <h2>Observation · 61 values</h2>
@@ -409,29 +451,14 @@ export default function App() {
           )}
         </section>
 
-        <section>
-          <h2>Selection</h2>
-          {selection ? (
-            <>
-              <div className="row"><span>Joint</span><span>{selection.jointName}</span></div>
-              <div className="row"><span>Body</span><span>{selection.bodyName}</span></div>
-              <button onClick={() => clearSelection()}>Clear</button>
-            </>
-          ) : (
-            <p className="hint" style={{ margin: 0 }}>
-              Click a part of the duck. Your selection becomes agent-readable state — ask
-              “what am I looking at?” and the agent resolves it without you describing anything.
-            </p>
-          )}
-        </section>
-
-        <section>
-          <h2>
-            WebMCP{' '}
+        <Collapsible
+          title="WebMCP"
+          badge={
             <span className={`pill ${webmcp.available ? 'ok' : 'bad'}`}>
               {webmcp.available ? `${webmcp.registered.length} tools` : 'not detected'}
             </span>
-          </h2>
+          }
+        >
           {webmcp.available ? (
             <ul className="tools">
               {webmcp.registered.map((t) => <li key={t}>{t}</li>)}
@@ -450,7 +477,7 @@ export default function App() {
               <button onClick={() => void tryRegisterWebMcpTools()}>Retry detection</button>
             </>
           )}
-        </section>
+        </Collapsible>
 
         <div className="log">
           <h2>Tool calls</h2>
