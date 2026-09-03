@@ -17,6 +17,7 @@ export class DuckRenderer {
   private readonly meshes: { geomId: number; mesh: THREE.Mesh }[] = []
   private readonly mat = new THREE.Matrix4()
   private raf = 0
+  private sizeObserver: ResizeObserver | null = null
 
   readonly controls: OrbitControls
   /** When true the orbit target tracks the duck; the user's angle and zoom are kept. */
@@ -108,6 +109,14 @@ export class DuckRenderer {
       if (id >= 0) { this.mouthBodyId = id; break }
     }
     this.resize()
+
+    // The canvas is a flex child, so it changes size whenever the reward dock
+    // grows or a panel folds — none of which fire a window resize. Without this
+    // the camera keeps a stale aspect ratio and the duck renders stretched.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.sizeObserver = new ResizeObserver(() => this.resize())
+      this.sizeObserver.observe(this.canvas)
+    }
   }
 
   private buildDuck(): void {
@@ -381,6 +390,8 @@ export class DuckRenderer {
 
   dispose(): void {
     this.stop()
+    this.sizeObserver?.disconnect()
+    this.sizeObserver = null
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown)
     this.canvas.removeEventListener('pointerup', this.handlePointerUp)
     this.controls.dispose()
