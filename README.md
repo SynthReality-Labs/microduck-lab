@@ -171,7 +171,7 @@ guaranteed inside an embedded browser.
 
 ## Honest limits
 
-- **Training a policy in the browser is impossible**, and that is the product's
+- **Training a policy in the browser is impractical**, and that is the product's
   architecture rather than a limitation being hidden. A 61→14 locomotion policy
   needs CUDA and hours. The browser is where a hypothesis is formed and cheaply
   falsified; the GPU is where you pay for the ones that survive.
@@ -202,6 +202,25 @@ guaranteed inside an embedded browser.
   it lose* rather than *what is the state right now*. And the training curves
   themselves come into the studio, next to the A/B table, so the whole loop —
   hypothesis, run, result — is visible in one place.
+- **Fine-tune in the browser — not train from scratch.** From-scratch
+  locomotion is impractical in a tab by two to three orders of magnitude, and
+  the bottleneck is physics, not the network: MuJoCo Warp is CUDA-only and no
+  WebGPU engine does contact-rich articulated bodies. But a `.pt` base
+  checkpoint changes the question. Fine-tuning a few hundred iterations at
+  16–64 environments is a tiny fraction of the 390M steps a full run takes —
+  plausibly minutes to an hour — and the 61→14 network itself trains happily
+  in TF.js or ORT-web. Whether PPO at that env count learns anything useful is
+  an empirical question, and the honest answer may be "only for small nudges".
+  But *nudge a policy in the browser and A/B it against the base* is a real
+  feature, and the base checkpoint that makes it possible now exists.
+- **Train the hierarchical top layer in the browser.** The Arena idea already
+  solves the compute problem: locomotion stays frozen (`alpha_walking`,
+  `ball_kick_*`), and what gets trained is the small policy that decides
+  *where to walk and when to kick*. Tiny state, tiny action space, and the
+  physics cost per decision is amortised over hundreds of frozen low-level
+  steps. That trains in a browser today, without WebGPU — and it is the
+  pedagogically right place for browser training to live, because it teaches
+  the hierarchical decomposition itself.
 - **The rest of the sensors**, especially the RGB camera and the ToF, to train
   more complex policies.
 - **Arena — several ducks, one world.** The feature that was scoped first and
