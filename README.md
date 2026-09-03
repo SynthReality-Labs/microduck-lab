@@ -7,6 +7,9 @@ A WebMCP-powered RL studio for [Microduck](https://pollen-robotics.com/microduck
 The real robot model, real MuJoCo physics and the real published policies, in a
 browser tab, with an AI agent working the same controls you are.
 
+**Live: [microducklab.com](https://microducklab.com)** — open it in ChatGPT's
+in-app browser, or Chrome with WebMCP enabled, and the agent gets 53 tools.
+
 *by SynthReality Labs*
 
 ---
@@ -55,9 +58,20 @@ gesture is the query.**
   must contribute ≤ 0.
 - **Evaluates robustness** across slopes, friction and pushes, and A/Bs two
   policies over identical seeds.
-- **Composes real training commands.** The generated `mjlab` command is verified
-  against the real CLI and runs on paste. Train it on your own GPU, drop the
-  resulting `.onnx` back in, and compare it against the baseline.
+- **Hands training off agent to agent.** The generated `mjlab` command is
+  verified against the real CLI and runs on paste — for a local CUDA GPU, a
+  local CPU smoke test, or Hugging Face Jobs. But the primary handoff is a
+  *prompt*: copy it to the assistant on your GPU machine and it clones the
+  repo, runs Pollen's 64×5 pre-flight, trains, and exports to ONNX. Training
+  continues the same conversation instead of becoming shell archaeology.
+- **Closes the loop with your own weights.** Import the `.onnx` — the 61→14
+  contract is validated on load — and it becomes a first-class policy: in the
+  list, drivable, and A/B-able against the shipped baseline over identical
+  scenarios and seeds. A policy trained this way on an RTX 5080 overnight
+  (`velstand`, 4096 envs, 4000 iterations) ships at
+  `/assets/runs/base-walk.onnx`; it survives on ice where the published
+  `alpha_walking` does not (50% vs 0%, 2 seeds × 5 s — a small sample, stated
+  as such).
 - **Makes any agent a Microduck expert** by serving Pollen's own hard-won RL
   playbook through tools, rather than expecting the model to already know it.
 
@@ -66,11 +80,18 @@ gesture is the query.**
 Because without it the agent is guessing at a screenshot and you are
 transcribing numbers into a chat box.
 
-Every state change goes through one command layer. The UI calls it; each WebMCP
-tool is a thin schema wrapper over the same function. There is deliberately no
-second path for the agent — so when the agent sets a velocity command, *the
-slider moves*. Human state and agent state cannot drift apart, because they are
-the same state.
+Every state change goes through one command layer. The UI calls it; each of
+the **53 WebMCP tools** is a thin schema wrapper over the same function. There
+is deliberately no second path for the agent — so when the agent sets a
+velocity command, *the slider moves*. Human state and agent state cannot drift
+apart, because they are the same state.
+
+Tools are registered on `document.modelContext` (`navigator.*` is deprecated
+in Chromium 150) and carry Chrome's security annotations: 25 are marked
+`readOnlyHint`, and the 3 that return content from outside the page —
+`get_rl_playbook`, `explain_reward_term`, `import_policy` — carry
+`untrustedContentHint`. They must be nested under `annotations`; passed flat,
+Chrome drops them without complaint.
 
 ## Running it
 
