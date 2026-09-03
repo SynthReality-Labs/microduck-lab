@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { MicroDuckSim } from './sim/MicroDuckSim'
 import { mountModelAssets } from './sim/mujocoRuntime'
 import { PolicyRunner } from './sim/PolicyRunner'
-import { POLICIES } from './sim/policyContract'
+import { listAllPolicies } from './sim/policyRegistry'
 import { DuckRenderer } from './render/DuckRenderer'
 import { useStudio } from './core/store'
 import {
@@ -32,6 +32,11 @@ export default function App() {
   const paused = useStudio((s) => s.paused)
   const [simTime, setSimTime] = useState(0)
   const loadedPolicy = useStudio((s) => s.loadedPolicy)
+  // Subscribing to importedPolicies is what makes the dropdown reactive: the
+  // catalogue itself is a plain function, so without this an import would not
+  // re-render the list it is supposed to appear in.
+  const importedPolicies = useStudio((s) => s.importedPolicies)
+  const allPolicies = useMemo(() => listAllPolicies(), [importedPolicies])
   const selection = useStudio((s) => s.selection)
   const commandVersion = useStudio((s) => s.commandVersion)
   const [policyError, setPolicyError] = useState<string | null>(null)
@@ -139,12 +144,18 @@ export default function App() {
             // exclusive: in review the playhead writes qpos directly, so the
             // policy must not also be issuing commands into the same state.
             const st = useStudio.getState()
+            // The eval suite drives the sim itself, on the same MjData. Letting
+            // the review playhead write qpos underneath it silently corrupts
+            // every episode, so an open rollout yields for the duration.
+            if (st.evaluating) return
             if (st.review) renderReviewFrame()
             else if (!st.paused) void runner.tick(dt)
           },
           onFrame: () => {
             setSimTime(sim!.data.time)
-            updateFallState()
+            // Falling is the measurement during an eval, not a problem to fix:
+            // auto-wake would reset the duck mid-episode and inflate survival.
+            if (!useStudio.getState().evaluating) updateFallState()
             tickChatter()
             // Only project while a bubble is up: doing it every frame otherwise
             // would be a pointless per-frame React update.
@@ -306,14 +317,17 @@ export default function App() {
             disabled={status !== 'ready'}
           >
             <option value="">— none (hold home pose) —</option>
-            {POLICIES.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
+            {allPolicies.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.source === 'imported' ? `${p.label} (yours)` : p.label}
+              </option>
             ))}
           </select>
           {policyError && <p className="inline-err">{policyError}</p>}
           <p className="hint">
-            Nine Apache-2.0 policies from Pollen Robotics. Every one is
-            <code> obs[1,61] → actions[1,14]</code>, run here at 50&nbsp;Hz.
+            Nine Apache-2.0 policies from Pollen Robotics, plus anything you
+            import. Every one is <code>obs[1,61] → actions[1,14]</code>, run
+            here at 50&nbsp;Hz.
           </p>
         </section>
 

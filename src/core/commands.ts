@@ -17,6 +17,10 @@ import { SCENARIOS, applyScenario, type Scenario, type ScenarioHandle } from '..
 import { PARK_X, PARK_Z, PROPS } from '../sim/props'
 import { LESSONS, type Lesson, type LessonStep } from '../knowledge/lessons'
 import { dismissBubble, maybeIdle, noteInteraction, react, reactToFall, tickBubble } from './bubbles'
+import {
+  allPolicyIds, listAllPolicies, listImportedPolicies, loadPolicyById,
+  registerImported, resolvePolicy, type ImportedPolicy,
+} from '../sim/policyRegistry'
 import type { ActionId } from '../knowledge/chatter'
 import {
   DEFAULT_RECIPE, TASKS, bundleFiles, composeJob, type Recipe, type Target,
@@ -177,8 +181,7 @@ export function listPolicies(): Result<{
   return {
     ok: true,
     policies: [
-      ...POLICIES.map((p) => ({ id: p.id, label: p.label, role: p.role, source: 'pollen' })),
-      ...listImportedPolicies().map((p) => ({ id: p.id, label: p.label, role: 'imported by the user', source: 'imported' })),
+      ...listAllPolicies().map((p) => ({ id: p.id, label: p.label, role: p.role, source: p.source })),
     ],
     loaded: policy?.currentPolicy ?? null,
   }
@@ -187,21 +190,17 @@ export function listPolicies(): Result<{
 export async function loadPolicy(id: string): Promise<Result<{ loaded: string }>> {
   const p = requirePolicyRunner()
   if (isErr(p)) return p
-  const entry = POLICIES.find((e) => e.id === id)
-  const importedEntry = entry ? null : imported.get(id)
-  if (!entry && !importedEntry) {
+  if (!resolvePolicy(id)) {
     return {
       ok: false,
       reason: `Unknown policy "${id}".`,
-      suggestion: `Valid ids: ${[...POLICIES.map((e) => e.id), ...imported.keys()].join(', ')}`,
+      suggestion: `Valid ids: ${allPolicyIds().join(', ')}`,
     }
   }
   try {
-    if (entry) await p.load(entry.id as PolicyId, entry.file)
-    else await p.loadFrom(importedEntry!.id, importedEntry!.url)
-    const loadedId = entry ? entry.id : importedEntry!.id
-    useStudio.getState().set({ loadedPolicy: loadedId })
-    return { ok: true, loaded: loadedId }
+    const entry = await loadPolicyById(p, id)
+    useStudio.getState().set({ loadedPolicy: entry.id })
+    return { ok: true, loaded: entry.id }
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) }
   }
@@ -572,8 +571,7 @@ export async function recordLibrary(): Promise<Result<{ recorded: string[] }>> {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) }
   } finally {
     if (previousPolicy) {
-      const entry = POLICIES.find((e) => e.id === previousPolicy)
-      if (entry) await p.load(entry.id as PolicyId, entry.file)
+      if (resolvePolicy(previousPolicy)) await loadPolicyById(p, previousPolicy)
     } else {
       p.unload()
       p.holdHomePose()
@@ -1014,11 +1012,11 @@ export async function runEvalSuite(args: {
   if (isErr(p)) return p
 
   const policyId = args.policy ?? p.currentPolicy ?? 'alpha_walking'
-  if (!POLICIES.some((e) => e.id === policyId)) {
+  if (!resolvePolicy(policyId)) {
     return {
       ok: false,
       reason: `Unknown policy "${policyId}".`,
-      suggestion: `Valid: ${POLICIES.map((e) => e.id).join(', ')}`,
+      suggestion: `Valid: ${allPolicyIds().join(', ')}`,
     }
   }
 
@@ -1061,8 +1059,7 @@ export async function runEvalSuite(args: {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) }
   } finally {
     if (previousPolicy) {
-      const entry = POLICIES.find((e) => e.id === previousPolicy)
-      if (entry) await p.load(entry.id as PolicyId, entry.file)
+      if (resolvePolicy(previousPolicy)) await loadPolicyById(p, previousPolicy)
     }
     p.command = previousCommand
     reapplyEnvironment()
@@ -1208,18 +1205,8 @@ export function exportTrainingJob(): Result<{ files: string[] }> {
 
 // ── Imported policies: the loop closes here ─────────────────────────────────
 
-export interface ImportedPolicy {
-  id: string
-  label: string
-  url: string
-  source: 'url' | 'file'
-}
-
-const imported = new Map<string, ImportedPolicy>()
-
-export function listImportedPolicies(): ImportedPolicy[] {
-  return [...imported.values()]
-}
+export type { ImportedPolicy } from '../sim/policyRegistry'
+export { listImportedPolicies } from '../sim/policyRegistry'
 
 /**
  * Import a policy trained elsewhere and make it immediately evaluable.
@@ -1238,7 +1225,7 @@ export async function importPolicy(args: { url?: string; name?: string }): Promi
       suggestion: 'Pass a URL to an .onnx file, or drag the file onto the studio window.',
     }
   }
-  const id = args.name?.trim() || `imported-${imported.size + 1}`
+  const id = args.name?.trim() || `imported-${listImportedPolicies().length + 1}`
   if (POLICIES.some((e) => e.id === id)) {
     return { ok: false, reason: `"${id}" collides with a published policy.`, suggestion: 'Choose another name.' }
   }
@@ -1249,10 +1236,7 @@ export async function importPolicy(args: { url?: string; name?: string }): Promi
     // wrong-shaped file fails now rather than becoming a flailing duck later.
     await p.loadFrom(id, args.url)
   } catch (e) {
-    if (previous) {
-      const entry = POLICIES.find((x) => x.id === previous)
-      if (entry) await p.load(entry.id as PolicyId, entry.file)
-    }
+    if (previous && resolvePolicy(previous)) await loadPolicyById(p, previous)
     return {
       ok: false,
       reason: e instanceof Error ? e.message : String(e),
@@ -1261,10 +1245,10 @@ export async function importPolicy(args: { url?: string; name?: string }): Promi
   }
 
   const rec: ImportedPolicy = { id, label: args.name ?? id, url: args.url, source: 'url' }
-  imported.set(id, rec)
+  registerImported(rec)
   useStudio.getState().set({
     loadedPolicy: id,
-    importedPolicies: [...imported.keys()],
+    importedPolicies: listImportedPolicies().map((x) => x.id),
   })
   return {
     ok: true,

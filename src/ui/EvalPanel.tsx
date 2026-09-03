@@ -10,6 +10,7 @@ export function EvalPanel() {
   const loadedPolicy = useStudio((s) => s.loadedPolicy)
   const evalPolicies = useStudio((s) => s.evalPolicies)
   const [report, setReport] = useState<EvalReport | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const shown =
     report ??
@@ -18,8 +19,12 @@ export function EvalPanel() {
       : null)
 
   const run = async () => {
+    setError(null)
     const r = await runEvalSuite({})
+    // Swallowing the failure here is what made a broken eval look like a dead
+    // button: the suite refused the policy and the UI said nothing at all.
     if (r.ok) setReport(r.report)
+    else setError([r.reason, r.suggestion].filter(Boolean).join(' '))
   }
 
   return (
@@ -41,9 +46,12 @@ export function EvalPanel() {
           <p className="hint" style={{ marginTop: 6 }}>{evaluating.label}</p>
         </>
       ) : (
-        <button onClick={() => void run()} disabled={status !== 'ready'}>
-          {shown ? 'Re-run' : 'Run eval suite'}
-        </button>
+        <>
+          <button onClick={() => void run()} disabled={status !== 'ready'}>
+            {shown ? 'Re-run' : 'Run eval suite'}
+          </button>
+          {error && <p className="inline-err">{error}</p>}
+        </>
       )}
 
       {shown && !evaluating && (

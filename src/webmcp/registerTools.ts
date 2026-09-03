@@ -105,7 +105,8 @@ const tools: Tool[] = [
     name: 'list_policies',
     title: 'List available policies',
     description:
-      'The nine Apache-2.0 policies published by Pollen Robotics, and which one is currently loaded.',
+      'Every policy the studio can load — the nine Apache-2.0 releases from Pollen Robotics plus any ' +
+      'you imported — and which one is currently loaded.',
     inputSchema: NO_ARGS,
     execute: () => core.listPolicies(),
   },
@@ -174,8 +175,11 @@ const tools: Tool[] = [
       {
         id: {
           type: 'string',
-          enum: ['alpha_walking', 'alpha_stand', 'alpha_sitstand', 'alpha_ground_pick', 'ball_kick_left', 'ball_kick_right', 'roller', 'roller_crouch', 'roulade'],
-          description: 'Policy id to load.',
+          // No enum: a policy the user imported is a legitimate id, and a frozen
+          // list of the nine published ones would make their own policy
+          // unnameable. list_policies enumerates what is actually loadable, and
+          // the core layer rejects unknown ids with the valid set.
+          description: 'Policy id to load. Use list_policies for the current set, which includes imported policies.',
         },
       },
       ['id'],
@@ -576,7 +580,7 @@ const tools: Tool[] = [
       'roughly a second per episode, so this is EXPENSIVE — confirm with the user before running the ' +
       'full suite. Defaults to all seven scenarios x three seeds.',
     inputSchema: obj({
-      policy: { type: 'string', enum: ['alpha_walking', 'alpha_stand', 'alpha_sitstand', 'alpha_ground_pick', 'ball_kick_left', 'ball_kick_right', 'roller', 'roller_crouch', 'roulade'], description: 'Policy to evaluate. Defaults to the loaded one.' },
+      policy: { type: 'string', description: 'Policy to evaluate, including one you imported. Defaults to the loaded one. See list_policies.' },
       scenarios: { type: 'array', items: { type: 'string', enum: ['flat', 'slope-8', 'slope-15', 'low-friction', 'ice', 'push-light', 'push-hard'] }, description: 'Subset of scenarios. Defaults to all.' },
       seeds: { type: 'array', items: { type: 'number' }, description: 'Seeds. Defaults to [1,2,3].' },
       seconds: { type: 'number', minimum: 1, maximum: 15, description: 'Episode length. Defaults to 5.' },

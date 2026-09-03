@@ -1,6 +1,7 @@
 import type { MicroDuckSim } from './MicroDuckSim'
 import type { PolicyRunner } from './PolicyRunner'
-import { ACTION_LEN, CONTROL_DT, POLICIES, type PolicyId } from './policyContract'
+import { ACTION_LEN, CONTROL_DT } from './policyContract'
+import { loadPolicyById } from './policyRegistry'
 import { applyScenario, jitterStart, type Scenario } from './scenarios'
 
 export interface EpisodeResult {
@@ -48,7 +49,7 @@ export async function evaluatePolicy(
   sim: MicroDuckSim,
   runner: PolicyRunner,
   opts: {
-    policy: PolicyId
+    policy: string
     scenarios: Scenario[]
     seeds: number[]
     seconds?: number
@@ -56,9 +57,9 @@ export async function evaluatePolicy(
     onProgress?: (done: number, total: number, label: string) => void
   },
 ): Promise<EvalReport> {
-  const entry = POLICIES.find((p) => p.id === opts.policy)
-  if (!entry) throw new Error(`unknown policy ${opts.policy}`)
-  await runner.load(entry.id as PolicyId, entry.file)
+  // Resolves published and imported policies alike — an imported policy is
+  // fetched from its own URL rather than the bundled assets path.
+  await loadPolicyById(runner, opts.policy)
 
   const seconds = opts.seconds ?? 5
   const command = opts.command ?? { vx: 0.3, vy: 0, vyaw: 0 }
